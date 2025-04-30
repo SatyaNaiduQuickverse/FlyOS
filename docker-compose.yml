@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - AUTH_SERVICE_URL=http://auth-service:4000
+    depends_on:
+      - auth-service
+    networks:
+      - flyos-network
+
+  auth-service:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=your_secure_jwt_secret_key
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=flyos_admin
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_DB=flyos_db
+    depends_on:
+      - postgres
+    networks:
+      - flyos-network
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: flyos_admin
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_DB: flyos_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - flyos-network
+
+networks:
+  flyos-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
