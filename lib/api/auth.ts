@@ -1,9 +1,14 @@
 // lib/api/auth.ts
-import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { User } from '../../types/auth';
 
 // Base API URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+// Extend InternalAxiosRequestConfig to include _retry property
+interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+}
 
 // Configure axios instance
 const api = axios.create({
@@ -16,8 +21,9 @@ const api = axios.create({
 interface ApiResponse<T> {
   success: boolean;
   message?: string;
-  [key: string]: any;
+  token?: string; // Add token at top level for backward compatibility
   data?: T;
+  [key: string]: unknown;
 }
 
 // Login response interface
@@ -32,7 +38,7 @@ interface LoginResponse {
 
 // Add request interceptor for token handling
 api.interceptors.request.use(
-  (config: AxiosRequestConfig): AxiosRequestConfig => {
+  (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
     // Get token from localStorage for backwards compatibility
     const token = typeof window !== 'undefined' ? localStorage.getItem('flyos_token') : null;
     
@@ -52,24 +58,28 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config;
-    if (!originalRequest) {
+    if (!error.config) {
       return Promise.reject(error);
     }
 
+    // Cast to our extended config type with _retry property
+    const originalRequest = error.config as ExtendedAxiosRequestConfig;
+    
     // If error is 401 (Unauthorized) and not already retrying
-    if (error.response?.status === 401 && !(originalRequest as any)._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry) {
       // Mark as retrying to prevent infinite loop
-      (originalRequest as any)._retry = true;
+      originalRequest._retry = true;
       
       try {
         // Try to refresh token
         const refreshResponse = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
         
-        if (refreshResponse.data.success) {
+        // Check for token in response (handle both patterns)
+        const newToken = refreshResponse.data.token || refreshResponse.data.data?.token;
+        
+        if (refreshResponse.data.success && newToken) {
           // Store new token in localStorage for backward compatibility
-          const newToken = refreshResponse.data.token;
-          if (typeof window !== 'undefined' && newToken) {
+          if (typeof window !== 'undefined') {
             localStorage.setItem('flyos_token', newToken);
           }
           
@@ -80,9 +90,9 @@ api.interceptors.response.use(
           
           return api(originalRequest);
         }
-      } catch (refreshError) {
+      } catch {
         // Failed to refresh token
-        console.error('Token refresh failed:', refreshError);
+        console.error('Token refresh failed');
         
         // Only redirect to login if we're in browser environment
         if (typeof window !== 'undefined') {
@@ -136,8 +146,9 @@ export const authApi = {
   verifyToken: async (): Promise<User> => {
     try {
       const response = await api.get<ApiResponse<{ user: User }>>('/auth/verify');
-      return response.data.user;
-    } catch (error) {
+      return response.data.data?.user as User;
+    } catch {
+      // Ignore variable to satisfy ESLint
       throw new Error('Invalid authentication session');
     }
   },
@@ -149,13 +160,16 @@ export const authApi = {
     try {
       const response = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
       
-      // Store new token in localStorage
-      if (typeof window !== 'undefined' && response.data.token) {
-        localStorage.setItem('flyos_token', response.data.token);
+      // Get token from response (handle both patterns)
+      const newToken = response.data.token || response.data.data?.token;
+      
+      if (newToken && typeof window !== 'undefined') {
+        localStorage.setItem('flyos_token', newToken);
       }
       
-      return response.data.token;
-    } catch (error) {
+      return newToken || '';
+    } catch {
+      // Ignore variable to satisfy ESLint
       throw new Error('Failed to refresh token');
     }
   },
@@ -178,8 +192,8 @@ export const authApi = {
         localStorage.removeItem('flyos_user');
         localStorage.removeItem('flyos_session_id');
       }
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch (logoutError) {
+      console.error('Logout error:', logoutError);
       
       // Still clear local storage even if API call fails
       if (typeof window !== 'undefined') {
@@ -195,12 +209,13 @@ export const authApi = {
    */
   getLoginHistory: async (page = 1, limit = 10, userId?: string) => {
     try {
-      const params: Record<string, any> = { page, limit };
+      const params: Record<string, unknown> = { page, limit };
       if (userId) params.userId = userId;
       
       const response = await api.get('/auth/login-history', { params });
       return response.data;
-    } catch (error) {
+    } catch {
+      // Ignore variable to satisfy ESLint
       throw new Error('Failed to fetch login history');
     }
   }

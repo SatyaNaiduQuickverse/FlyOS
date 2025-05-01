@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { authApi } from '../lib/api/auth';
 import { useAuth } from '../lib/auth';
 
@@ -17,6 +17,7 @@ interface LoginHistoryEntry {
   sessionDuration: number | null;
 }
 
+// Interface used when fetching login history data
 interface LoginHistoryResponse {
   success: boolean;
   totalCount: number;
@@ -87,13 +88,13 @@ export default function LoginHistoryTable({
     );
   };
 
-  // Fetch login history data
-  const fetchLoginHistory = async () => {
+  // Fetch login history data - using useCallback to avoid recreating this function on each render
+  const fetchLoginHistory = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await authApi.getLoginHistory(page, limit, userId);
+      const response = await authApi.getLoginHistory(page, limit, userId) as LoginHistoryResponse; // Use the interface to satisfy ESLint
       
       if (response.success) {
         setLoginHistory(response.loginHistory);
@@ -108,12 +109,12 @@ export default function LoginHistoryTable({
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, limit, userId]);
 
-  // Fetch data when component mounts or when page/userId changes
+  // Fetch data when component mounts or when fetchLoginHistory dependencies change
   useEffect(() => {
     fetchLoginHistory();
-  }, [page, userId]);
+  }, [fetchLoginHistory]); // Add fetchLoginHistory to dependency array
 
   // Handle page change
   const handlePageChange = (newPage: number) => {
@@ -134,7 +135,7 @@ export default function LoginHistoryTable({
           {error}
           <button 
             className="ml-4 underline" 
-            onClick={fetchLoginHistory}
+            onClick={() => fetchLoginHistory()}
           >
             Retry
           </button>
