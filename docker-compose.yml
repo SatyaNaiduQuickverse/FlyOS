@@ -6,14 +6,16 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3001:3000"  # Changed from 3000:3000 to 3001:3000
+      - "3000:3000"
     environment:
       - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
       - AUTH_SERVICE_URL=http://auth-service:4000
     depends_on:
       - auth-service
     networks:
       - flyos-network
+    restart: unless-stopped
 
   auth-service:
     build:
@@ -24,14 +26,19 @@ services:
     environment:
       - NODE_ENV=production
       - JWT_SECRET=your_secure_jwt_secret_key
+      - ACCESS_TOKEN_EXPIRY=1h
+      - REFRESH_TOKEN_EXPIRY=7d
       - POSTGRES_HOST=postgres
       - POSTGRES_USER=flyos_admin
       - POSTGRES_PASSWORD=secure_password
       - POSTGRES_DB=flyos_db
+      - CORS_ORIGIN=http://localhost:3000
+      - FORCE_DB_SYNC=false
     depends_on:
       - postgres
     networks:
       - flyos-network
+    restart: unless-stopped
 
   postgres:
     image: postgres:15
@@ -42,9 +49,15 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"  # Changed from 5432:5432 to 5433:5432
+      - "5432:5432"
     networks:
       - flyos-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flyos_admin -d flyos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   flyos-network:
