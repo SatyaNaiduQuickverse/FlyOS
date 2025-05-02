@@ -1,3 +1,4 @@
+// services/auth/src/models/loginHistory.js
 const { DataTypes } = require('sequelize');
 
 /**
@@ -78,16 +79,39 @@ module.exports = (sequelize) => {
     }
   };
 
-  // Class method to record logout
+  // Class method to record logout with improved handling
   LoginHistory.recordLogout = async function(sessionId) {
     try {
+      if (!sessionId) {
+        console.warn('No session ID provided for logout');
+        return null;
+      }
+
       const session = await this.findByPk(sessionId);
       if (session) {
+        if (session.logoutTime) {
+          console.log(`Session ${sessionId} already logged out at ${session.logoutTime}`);
+          return session;
+        }
+
+        // Set logout time to current time
         session.logoutTime = new Date();
+        
+        // Calculate session duration in seconds for logging
+        const loginTime = new Date(session.loginTime);
+        const logoutTime = new Date(session.logoutTime);
+        const durationInSeconds = Math.floor((logoutTime.getTime() - loginTime.getTime()) / 1000);
+        
+        // Log the logout with duration info
+        console.log(`Recording logout for session ${sessionId}, duration: ${durationInSeconds}s`);
+        
+        // Save the updated session
         await session.save();
         return session;
+      } else {
+        console.warn(`Session ${sessionId} not found for logout`);
+        return null;
       }
-      return null;
     } catch (error) {
       console.error('Failed to record logout:', error);
       return null;

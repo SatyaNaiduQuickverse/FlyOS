@@ -35,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const router = useRouter();
 
   // Clear authentication error
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // If no token, clear session and exit
         if (!token) {
           setLoading(false);
+          setSessionChecked(true);
           return;
         }
 
@@ -68,13 +70,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Verify token with backend
-        const userData = await authApi.verifyToken();
-        
-        // Update user state with fresh data from server
-        setUser(userData);
-        
-        // Update localStorage with fresh data
-        localStorage.setItem('flyos_user', JSON.stringify(userData));
+        try {
+          const userData = await authApi.verifyToken();
+          
+          // Update user state with fresh data from server
+          setUser(userData);
+          
+          // Update localStorage with fresh data
+          localStorage.setItem('flyos_user', JSON.stringify(userData));
+          
+          console.log('Session verified successfully');
+        } catch (verifyError) {
+          console.error('Token verification failed:', verifyError);
+          
+          // Try to refresh the token if verification fails
+          try {
+            const newToken = await authApi.refreshToken();
+            if (newToken) {
+              // Token refreshed, try to get user data again
+              const userData = await authApi.verifyToken();
+              setUser(userData);
+              localStorage.setItem('flyos_user', JSON.stringify(userData));
+              console.log('Session refreshed successfully');
+            } else {
+              throw new Error('Token refresh failed');
+            }
+          } catch (refreshError) {
+            // Both verification and refresh failed, clear session
+            console.error('Token refresh failed:', refreshError);
+            localStorage.removeItem('flyos_user');
+            localStorage.removeItem('flyos_token');
+            setUser(null);
+          }
+        }
       } catch (error) {
         console.error('Authentication session error:', error);
         
@@ -85,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
       } finally {
         setLoading(false);
+        setSessionChecked(true);
       }
     };
 
@@ -99,15 +128,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // If no user, don't set up refresh interval
     if (!user) return;
     
-    // Refresh token every 30 minutes
+    // Refresh token every 15 minutes (reduced from 30 to be more frequent)
     const refreshInterval = setInterval(async () => {
       try {
         await authApi.refreshToken();
+        console.log('Token refreshed automatically');
       } catch (error) {
         console.error('Token refresh error:', error);
         // Don't log user out on refresh failure - let the interceptor handle it
       }
-    }, 30 * 60 * 1000); // 30 minutes in milliseconds
+    }, 15 * 60 * 1000); // 15 minutes in milliseconds
     
     // Clear interval on unmount
     return () => clearInterval(refreshInterval);
@@ -193,9 +223,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Session refresh error:', error);
       
-      // If token is invalid, logout
-      if (error instanceof Error && error.message === 'Invalid authentication session') {
-        await logout();
+      // Try to refresh the token if verification fails
+      try {
+        const newToken = await authApi.refreshToken();
+        if (newToken) {
+          // Token refreshed, try to get user data again
+          const userData = await authApi.verifyToken();
+          setUser(userData);
+          localStorage.setItem('flyos_user', JSON.stringify(userData));
+          console.log('Session refreshed successfully');
+        } else {
+          // If token is invalid, logout
+          await logout();
+        }
+      } catch (refreshError) {
+        // If token is invalid, logout
+        if (error instanceof Error && error.message === 'Invalid authentication session') {
+          await logout();
+        }
       }
     }
   }, [user, logout]);

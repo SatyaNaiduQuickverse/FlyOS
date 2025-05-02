@@ -90,18 +90,21 @@ api.interceptors.response.use(
           
           return api(originalRequest);
         }
-      } catch {
+      } catch (refreshError) {
         // Failed to refresh token
-        console.error('Token refresh failed');
+        console.error('Token refresh failed:', refreshError);
         
         // Only redirect to login if we're in browser environment
         if (typeof window !== 'undefined') {
-          // Keep current URL to redirect back after login
-          const currentPath = window.location.pathname + window.location.search;
-          localStorage.setItem('flyos_redirect_after_login', currentPath);
-          
-          // Redirect to login page
-          window.location.href = '/auth/login';
+          // Check if we're already on the login page to avoid redirect loops
+          if (!window.location.pathname.includes('/auth/login')) {
+            // Keep current URL to redirect back after login
+            const currentPath = window.location.pathname + window.location.search;
+            localStorage.setItem('flyos_redirect_after_login', currentPath);
+            
+            // Redirect to login page
+            window.location.href = '/auth/login';
+          }
         }
       }
     }
@@ -147,7 +150,7 @@ export const authApi = {
     try {
       const response = await api.get<ApiResponse<{ user: User }>>('/verify');
       return response.data.data?.user as User;
-    } catch {
+    } catch (error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Invalid authentication session');
     }
@@ -168,7 +171,7 @@ export const authApi = {
       }
       
       return newToken || '';
-    } catch {
+    } catch (error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Failed to refresh token');
     }
@@ -207,14 +210,14 @@ export const authApi = {
   /**
    * Get login history
    */
-  getLoginHistory: async (page = 1, limit = 10, userId?: string) => {
+  getLoginHistory: async (page = 1, limit = 20, userId?: string) => {
     try {
       const params: Record<string, unknown> = { page, limit };
       if (userId) params.userId = userId;
       
       const response = await api.get('/login-history', { params });
       return response.data;
-    } catch {
+    } catch (error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Failed to fetch login history');
     }

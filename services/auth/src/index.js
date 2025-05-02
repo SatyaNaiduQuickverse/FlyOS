@@ -39,54 +39,54 @@ app.post('/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     console.log(`Login attempt for user: ${username}`);
-    
+
     // Find user by username
-    const user = await User.findOne({ 
+    const user = await User.findOne({
       where: { username },
       // Temporarily disable default scope to include the password
       attributes: { include: ['password'] }
     });
-    
+
     console.log('User found:', user ? 'Yes' : 'No');
-    
+
     if (!user || !user.active) {
       // Record failed login attempt
       await LoginHistory.recordLogin(
-        { username }, 
-        req, 
-        'FAILED', 
+        { username },
+        req,
+        'FAILED',
         user ? 'Account disabled' : 'User not found'
       );
-      
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
+
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
       });
     }
-    
+
     console.log('Password from request:', password);
     console.log('Stored password:', user.password);
-    
+
     // TEMPORARY FIX: Since passwords are stored in plain text,
     // do a direct comparison instead of using bcrypt
     const isValidPassword = (password === user.password);
     console.log('Password validation result:', isValidPassword);
-    
+
     if (!isValidPassword) {
       // Record failed login attempt
       await LoginHistory.recordLogin(
-        { id: user.id, username }, 
-        req, 
-        'FAILED', 
+        { id: user.id, username },
+        req,
+        'FAILED',
         'Invalid password'
       );
-      
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
+
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
       });
     }
-    
+
     // Create JWT payload
     const payload = {
       id: user.id,
@@ -95,21 +95,21 @@ app.post('/auth/login', async (req, res) => {
       regionId: user.regionId || undefined,
       tokenVersion: user.tokenVersion
     };
-    
+
     // Generate tokens
     const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshToken = jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
-    
+
     // Record successful login
     const loginRecord = await LoginHistory.recordLogin(
       { id: user.id, username: user.username },
       req
     );
-    
+
     // Update user's last login timestamp
     user.lastLogin = new Date();
     await user.save();
-    
+
     // Set tokens in HTTP-only cookies
     res.cookie('access_token', accessToken, {
       httpOnly: true,
@@ -117,14 +117,14 @@ app.post('/auth/login', async (req, res) => {
       sameSite: 'strict',
       maxAge: 60 * 60 * 1000 // 1 hour in milliseconds
     });
-    
+
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: COOKIE_SECURE,
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
     });
-    
+
     // Store session ID in a regular cookie for logout tracking
     res.cookie('session_id', loginRecord.id, {
       httpOnly: false, // Accessible to JavaScript for logout
@@ -132,12 +132,12 @@ app.post('/auth/login', async (req, res) => {
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
-    
+
     // Sanitize user object (remove password)
     const userResponse = User.sanitizeUser(user);
-    
+
     console.log(`User authenticated successfully: ${username}`);
-    
+
     // Send response
     res.status(200).json({
       success: true,
@@ -149,9 +149,9 @@ app.post('/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Internal server error' 
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
     });
   }
 });
@@ -164,27 +164,27 @@ app.post('/auth/refresh', async (req, res) => {
   try {
     // Get refresh token from cookie
     const refreshToken = req.cookies.refresh_token;
-    
+
     if (!refreshToken) {
       return res.status(401).json({
         success: false,
         message: 'Refresh token required'
       });
     }
-    
+
     // Verify refresh token
     const decoded = jwt.verify(refreshToken, JWT_SECRET);
-    
+
     // Get user from database
     const user = await User.findByPk(decoded.id);
-    
+
     if (!user || !user.active) {
       return res.status(401).json({
         success: false,
         message: 'Invalid refresh token'
       });
     }
-    
+
     // Check if token version matches (for token revocation)
     if (decoded.tokenVersion !== user.tokenVersion) {
       return res.status(401).json({
@@ -192,7 +192,7 @@ app.post('/auth/refresh', async (req, res) => {
         message: 'Token has been revoked'
       });
     }
-    
+
     // Create payload for new tokens
     const payload = {
       id: user.id,
@@ -201,11 +201,11 @@ app.post('/auth/refresh', async (req, res) => {
       regionId: user.regionId || undefined,
       tokenVersion: user.tokenVersion
     };
-    
+
     // Generate new tokens
     const newAccessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const newRefreshToken = jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
-    
+
     // Set new tokens in cookies
     res.cookie('access_token', newAccessToken, {
       httpOnly: true,
@@ -213,14 +213,14 @@ app.post('/auth/refresh', async (req, res) => {
       sameSite: 'strict',
       maxAge: 60 * 60 * 1000 // 1 hour
     });
-    
+
     res.cookie('refresh_token', newRefreshToken, {
       httpOnly: true,
       secure: COOKIE_SECURE,
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
-    
+
     res.status(200).json({
       success: true,
       message: 'Token refreshed successfully',
@@ -229,11 +229,11 @@ app.post('/auth/refresh', async (req, res) => {
     });
   } catch (error) {
     console.error('Token refresh error:', error);
-    
+
     // Clear cookies on error
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
-    
+
     return res.status(401).json({
       success: false,
       message: 'Invalid refresh token'
@@ -249,17 +249,17 @@ app.post('/auth/logout', async (req, res) => {
   try {
     // Get session ID from cookie
     const sessionId = req.cookies.session_id;
-    
+
     // Record logout if session ID exists
     if (sessionId) {
       await LoginHistory.recordLogout(sessionId);
     }
-    
+
     // Clear authentication cookies
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
     res.clearCookie('session_id');
-    
+
     res.status(200).json({
       success: true,
       message: 'Logged out successfully'
@@ -282,14 +282,14 @@ app.get('/auth/verify', authMiddleware, async (req, res) => {
     // Token is already verified by middleware
     // Get user from database for fresh data
     const user = await User.findByPk(req.user.id);
-    
+
     if (!user || !user.active) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'User not found or deactivated' 
+      return res.status(401).json({
+        success: false,
+        message: 'User not found or deactivated'
       });
     }
-    
+
     // Check if user's token version matches (for token revocation)
     if (req.user.tokenVersion !== user.tokenVersion) {
       return res.status(401).json({
@@ -297,7 +297,7 @@ app.get('/auth/verify', authMiddleware, async (req, res) => {
         message: 'Token has been revoked'
       });
     }
-    
+
     // Return user data
     res.status(200).json({
       success: true,
@@ -305,9 +305,9 @@ app.get('/auth/verify', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Token verification error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Internal server error' 
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
     });
   }
 });
@@ -331,32 +331,62 @@ app.get('/auth/login-history', authMiddleware, async (req, res) => {
       offset
     };
     
-    // If userId is specified and user has permission
-    if (userId) {
-      // Only Main HQ or Regional HQ for their operators can view others' history
-      if (req.user.role === 'MAIN_HQ' || 
-         (req.user.role === 'REGIONAL_HQ' && await isOperatorInRegion(userId, req.user.regionId))) {
+    // If Main HQ requesting system-wide history or specific user history
+    if (req.user.role === 'MAIN_HQ') {
+      // If userId is specified, filter by that userId
+      if (userId) {
         queryOptions.where = { userId };
-      } else {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to view this user\'s login history'
-        });
       }
-    } else {
-      // View own login history
+      // If no userId specified, get all login history (system-wide)
+      // No where clause needed, it will return all records
+    } 
+    // Regional HQ can see their own history and their operators' history
+    else if (req.user.role === 'REGIONAL_HQ') {
+      if (userId) {
+        // If specific userId requested, check if it's an operator in their region
+        const operator = await User.findByPk(userId);
+        if (operator && operator.role === 'OPERATOR' && operator.regionId === req.user.regionId) {
+          queryOptions.where = { userId };
+        } else {
+          // If requested user is not their operator, only show their own history
+          queryOptions.where = { userId: req.user.id };
+        }
+      } else {
+        // Get regional HQ's own history by default
+        queryOptions.where = { userId: req.user.id };
+      }
+    } 
+    // Operators can only see their own history
+    else {
       queryOptions.where = { userId: req.user.id };
     }
     
+    console.log('Login history query options:', JSON.stringify(queryOptions));
+    
     // Get login history with pagination
     const { count, rows } = await LoginHistory.findAndCountAll(queryOptions);
+    
+    // Process the results before sending
+    const processedLoginHistory = rows.map(entry => {
+      // Clone the entry (to avoid modifying the sequelize instance)
+      const processedEntry = entry.get({ plain: true });
+      
+      // Calculate session duration for active sessions
+      if (!processedEntry.logoutTime && processedEntry.loginTime) {
+        const loginTime = new Date(processedEntry.loginTime);
+        const now = new Date();
+        processedEntry.sessionDuration = Math.floor((now - loginTime) / 1000);
+      }
+      
+      return processedEntry;
+    });
     
     res.status(200).json({
       success: true,
       totalCount: count,
       pages: Math.ceil(count / limit),
       currentPage: page,
-      loginHistory: rows
+      loginHistory: processedLoginHistory
     });
   } catch (error) {
     console.error('Login history error:', error);
@@ -383,17 +413,17 @@ async function initializeDb() {
     console.log('Connecting to PostgreSQL database...');
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
-    
+
     console.log('Syncing database models...');
     const forceSync = process.env.FORCE_DB_SYNC === 'true';
     await sequelize.sync({ force: forceSync });
     console.log('Database models synchronized.');
-    
+
     // Check for existing users
     console.log('Checking for existing users...');
     const count = await User.count();
     console.log(`Found ${count} existing users.`);
-    
+
     if (count === 0) {
       console.log('No users found. Seeding initial data...');
       await seedUsers();
@@ -410,7 +440,7 @@ async function initializeDb() {
 async function seedUsers() {
   try {
     const defaultPassword = 'password';
-    
+
     const initialUsers = [
       {
         username: 'main_admin',
@@ -436,7 +466,7 @@ async function seedUsers() {
         email: 'op1@flyos.mil'
       }
     ];
-    
+
     console.log('Creating initial users...');
     await User.bulkCreate(initialUsers);
     console.log('Initial users created successfully');

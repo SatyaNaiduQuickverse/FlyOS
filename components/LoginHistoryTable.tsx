@@ -30,6 +30,7 @@ interface LoginHistoryTableProps {
   userId?: string;
   limit?: number;
   title?: string;
+  showAllUsers?: boolean; // New prop to explicitly control whether to show all users
 }
 
 /**
@@ -38,8 +39,9 @@ interface LoginHistoryTableProps {
  */
 export default function LoginHistoryTable({ 
   userId, 
-  limit = 10,
-  title = "Login History"
+  limit = 20, // Increased limit to show more history
+  title = "Login History",
+  showAllUsers = false
 }: LoginHistoryTableProps) {
   const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +50,7 @@ export default function LoginHistoryTable({
   const [totalPages, setTotalPages] = useState(1);
   const [totalEntries, setTotalEntries] = useState(0);
   const { user } = useAuth();
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // Format date in a user-friendly way
   const formatDate = (dateString: string) => {
@@ -56,19 +59,37 @@ export default function LoginHistoryTable({
     return date.toLocaleString();
   };
 
-  // Format duration in a user-friendly way
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return 'N/A';
+  // Format duration in a user-friendly way - fixed to prevent continuous updates
+  const formatDuration = (seconds: number | null, loginTime: string, logoutTime: string | null) => {
+    let duration = seconds;
     
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
+    // If session is active (no logoutTime), calculate duration once
+    if (!logoutTime && loginTime) {
+      const loginDate = new Date(loginTime);
+      const now = new Date(lastUpdated); // Use lastUpdated instead of current time
+      duration = Math.floor((now.getTime() - loginDate.getTime()) / 1000);
+    }
+    
+    if (!duration) return 'N/A';
+    
+    const hours = Math.floor(duration / 3600);
+    const minutes = Math.floor((duration % 3600) / 60);
+    const remainingSeconds = Math.floor(duration % 60);
     
     return [
       hours > 0 ? `${hours}h` : '',
       minutes > 0 ? `${minutes}m` : '',
       `${remainingSeconds}s`
     ].filter(Boolean).join(' ');
+  };
+
+  // Format IP address in a user-friendly way
+  const formatIpAddress = (ipAddress: string) => {
+    // Remove IPv6 prefix if it's an IPv4-mapped address
+    if (ipAddress && ipAddress.startsWith('::ffff:')) {
+      return ipAddress.substring(7);
+    }
+    return ipAddress || 'N/A';
   };
 
   // Format status with color coding
@@ -94,12 +115,20 @@ export default function LoginHistoryTable({
     setError(null);
     
     try {
-      const response = await authApi.getLoginHistory(page, limit, userId) as LoginHistoryResponse; // Use the interface to satisfy ESLint
+      // System-wide history for Main HQ if showAllUsers is true, otherwise respect userId
+      const queryUserId = (user?.role === 'MAIN_HQ' && showAllUsers) ? undefined : userId || user?.id;
+      
+      console.log('Fetching login history with userId:', queryUserId, 'showAllUsers:', showAllUsers);
+      
+      // Use a larger limit to get more history
+      const response = await authApi.getLoginHistory(page, limit, queryUserId) as LoginHistoryResponse;
       
       if (response.success) {
         setLoginHistory(response.loginHistory);
         setTotalPages(response.pages);
         setTotalEntries(response.totalCount);
+        // Update the lastUpdated timestamp
+        setLastUpdated(new Date());
       } else {
         setError('Failed to fetch login history');
       }
@@ -109,24 +138,51 @@ export default function LoginHistoryTable({
     } finally {
       setLoading(false);
     }
-  }, [page, limit, userId]);
+  }, [page, limit, userId, user, showAllUsers]);
 
-  // Fetch data when component mounts or when fetchLoginHistory dependencies change
+  // Run a refresh every minute to update any active sessions (but not continuously)
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      fetchLoginHistory();
+    }, 60000); // Refresh every minute
+    
+    return () => clearInterval(intervalId);
+  }, [fetchLoginHistory]);
+
+  // Fetch data when component mounts or when dependencies change
   useEffect(() => {
     fetchLoginHistory();
-  }, [fetchLoginHistory]); // Add fetchLoginHistory to dependency array
+  }, [fetchLoginHistory]);
 
   // Handle page change
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
   };
 
+  // Determine if we should show the username column
+  const showUserColumn = user?.role === 'MAIN_HQ' || 
+                         (title && title.toLowerCase().includes('system-wide')) ||
+                         showAllUsers;
+
   return (
     <div className="bg-gray-800 shadow-lg rounded-lg p-6 overflow-hidden">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-semibold text-white">{title}</h2>
-        <div className="text-sm text-gray-400">
-          {totalEntries > 0 && `Showing ${loginHistory.length} of ${totalEntries} entries`}
+        <div className="flex flex-col">
+          <h2 className="text-xl font-semibold text-white">{title}</h2>
+          <div className="text-xs text-gray-400 mt-1">
+            Last updated: {formatDate(lastUpdated.toISOString())}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-gray-400">
+            {totalEntries > 0 && `Showing ${loginHistory.length} of ${totalEntries} entries`}
+          </div>
+          <button 
+            onClick={fetchLoginHistory} 
+            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
+          >
+            Refresh
+          </button>
         </div>
       </div>
       
@@ -135,7 +191,7 @@ export default function LoginHistoryTable({
           {error}
           <button 
             className="ml-4 underline" 
-            onClick={() => fetchLoginHistory()}
+            onClick={fetchLoginHistory}
           >
             Retry
           </button>
@@ -152,7 +208,7 @@ export default function LoginHistoryTable({
             <table className="min-w-full divide-y divide-gray-700">
               <thead className="bg-gray-700">
                 <tr>
-                  {!userId && user?.role === 'MAIN_HQ' && (
+                  {showUserColumn && (
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                       User
                     </th>
@@ -177,14 +233,14 @@ export default function LoginHistoryTable({
               <tbody className="bg-gray-800 divide-y divide-gray-700">
                 {loginHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={userId ? 5 : 6} className="px-6 py-4 text-sm text-gray-400 text-center">
+                    <td colSpan={showUserColumn ? 6 : 5} className="px-6 py-4 text-sm text-gray-400 text-center">
                       No login history available
                     </td>
                   </tr>
                 ) : (
                   loginHistory.map((entry) => (
                     <tr key={entry.id} className="hover:bg-gray-700">
-                      {!userId && user?.role === 'MAIN_HQ' && (
+                      {showUserColumn && (
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                           {entry.username}
                         </td>
@@ -196,10 +252,10 @@ export default function LoginHistoryTable({
                         {entry.logoutTime ? formatDate(entry.logoutTime) : 'Active Session'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                        {formatDuration(entry.sessionDuration)}
+                        {formatDuration(entry.sessionDuration, entry.loginTime, entry.logoutTime)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                        {entry.ipAddress || 'N/A'}
+                        {formatIpAddress(entry.ipAddress)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {formatStatus(entry.status)}
