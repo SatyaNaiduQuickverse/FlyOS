@@ -3,7 +3,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { User } from '../../types/auth';
 
 // Base API URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // Extend InternalAxiosRequestConfig to include _retry property
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
@@ -72,7 +72,7 @@ api.interceptors.response.use(
       
       try {
         // Try to refresh token
-        const refreshResponse = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
+        const refreshResponse = await api.post<ApiResponse<{ token: string }>>('/refresh');
         
         // Check for token in response (handle both patterns)
         const newToken = refreshResponse.data.token || refreshResponse.data.data?.token;
@@ -117,7 +117,7 @@ export const authApi = {
    */
   login: async (username: string, password: string): Promise<LoginResponse> => {
     try {
-      const response = await api.post<LoginResponse>('/auth/login', { 
+      const response = await api.post<LoginResponse>('/login', { 
         username, 
         password 
       });
@@ -145,7 +145,7 @@ export const authApi = {
    */
   verifyToken: async (): Promise<User> => {
     try {
-      const response = await api.get<ApiResponse<{ user: User }>>('/auth/verify');
+      const response = await api.get<ApiResponse<{ user: User }>>('/verify');
       return response.data.data?.user as User;
     } catch {
       // Ignore variable to satisfy ESLint
@@ -158,7 +158,7 @@ export const authApi = {
    */
   refreshToken: async (): Promise<string> => {
     try {
-      const response = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
+      const response = await api.post<ApiResponse<{ token: string }>>('/refresh');
       
       // Get token from response (handle both patterns)
       const newToken = response.data.token || response.data.data?.token;
@@ -184,7 +184,7 @@ export const authApi = {
         localStorage.getItem('flyos_session_id') : null;
       
       // Call logout endpoint
-      await api.post('/auth/logout', { sessionId });
+      await api.post('/logout', { sessionId });
       
       // Clear local storage
       if (typeof window !== 'undefined') {
@@ -212,7 +212,7 @@ export const authApi = {
       const params: Record<string, unknown> = { page, limit };
       if (userId) params.userId = userId;
       
-      const response = await api.get('/auth/login-history', { params });
+      const response = await api.get('/login-history', { params });
       return response.data;
     } catch {
       // Ignore variable to satisfy ESLint

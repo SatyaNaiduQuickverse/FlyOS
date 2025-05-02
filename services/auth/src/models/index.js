@@ -1,7 +1,7 @@
 // services/auth/src/models/index.js
 const { Sequelize } = require('sequelize');
-const UserModel = require('./User');
-const LoginHistoryModel = require('./LoginHistory');
+const UserModel = require('./user');
+const LoginHistoryModel = require('./loginHistory');
 
 // Database configuration
 const config = {

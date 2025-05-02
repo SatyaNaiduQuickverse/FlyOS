@@ -19,7 +19,7 @@ const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 
 // Configure middleware
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: process.env.CORS_ORIGIN || ['http://frontend:3000', 'http://localhost:3001'],
   credentials: true // Important for cookies
 }));
 app.use(express.json());
