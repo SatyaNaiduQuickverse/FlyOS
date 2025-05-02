@@ -31,7 +31,7 @@ services:
       - POSTGRES_PASSWORD=secure_password
       - POSTGRES_DB=flyos_db
       - CORS_ORIGIN=http://frontend:3000
-      - FORCE_DB_SYNC=false
+      - FORCE_DB_SYNC=true
     depends_on:
       - postgres
     networks:

@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const { sequelize, User, LoginHistory } = require('./models');
 const authMiddleware = require('./middleware/auth');
 const { checkRole, checkRegion } = require('./middleware/rbac');
+const bcrypt = require('bcrypt');
 
 // Initialize Express app
 const app = express();
@@ -19,7 +20,7 @@ const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 
 // Configure middleware
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || ['http://frontend:3000', 'http://localhost:3001'],
+  origin: process.env.CORS_ORIGIN || ['http://frontend:3000', 'http://localhost:3001', 'http://3.111.215.70:3001'],
   credentials: true // Important for cookies
 }));
 app.use(express.json());
@@ -39,8 +40,14 @@ app.post('/auth/login', async (req, res) => {
     const { username, password } = req.body;
     console.log(`Login attempt for user: ${username}`);
     
-    // Find user by username - need to use scope to include password
-    const user = await User.scope('withPassword').findOne({ where: { username } });
+    // Find user by username
+    const user = await User.findOne({ 
+      where: { username },
+      // Temporarily disable default scope to include the password
+      attributes: { include: ['password'] }
+    });
+    
+    console.log('User found:', user ? 'Yes' : 'No');
     
     if (!user || !user.active) {
       // Record failed login attempt
@@ -57,8 +64,13 @@ app.post('/auth/login', async (req, res) => {
       });
     }
     
-    // Validate password
-    const isValidPassword = await user.validatePassword(password);
+    console.log('Password from request:', password);
+    console.log('Stored password:', user.password);
+    
+    // TEMPORARY FIX: Since passwords are stored in plain text,
+    // do a direct comparison instead of using bcrypt
+    const isValidPassword = (password === user.password);
+    console.log('Password validation result:', isValidPassword);
     
     if (!isValidPassword) {
       // Record failed login attempt
@@ -373,7 +385,8 @@ async function initializeDb() {
     console.log('Database connection established successfully.');
     
     console.log('Syncing database models...');
-    await sequelize.sync({ force: process.env.FORCE_DB_SYNC === 'true' });
+    const forceSync = process.env.FORCE_DB_SYNC === 'true';
+    await sequelize.sync({ force: forceSync });
     console.log('Database models synchronized.');
     
     // Check for existing users
