@@ -6,6 +6,7 @@ import {
   MapPin, Maximize, ChevronDown, ChevronUp
 } from 'lucide-react';
 import DroneLocationMap from './DroneLocationMap';
+import GradientText from './GradientText';
 
 // Region interface
 interface Region {
@@ -241,54 +242,58 @@ const RegionalConsole: React.FC = () => {
   const getStatusStyles = (status: string): string => {
     switch(status) {
       case 'ACTIVE':
-        return 'bg-green-500/20 text-green-300 border-green-500/30';
+        return 'bg-blue-500/20 text-blue-300';
       case 'STANDBY':
-        return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+        return 'bg-indigo-500/20 text-indigo-300';
       case 'MAINTENANCE':
-        return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30';
+        return 'bg-amber-500/20 text-amber-300';
       case 'OFFLINE':
       case 'INACTIVE':
-        return 'bg-red-500/20 text-red-300 border-red-500/30';
+        return 'bg-rose-500/20 text-rose-300';
       default:
-        return 'bg-gray-500/20 text-gray-300 border-gray-500/30';
+        return 'bg-gray-500/20 text-gray-300';
     }
   };
 
   const getBatteryStyles = (level: number): string => {
-    if (level >= 80) return 'bg-green-500/20 text-green-300';
-    if (level >= 50) return 'bg-yellow-500/20 text-yellow-300';
-    if (level >= 20) return 'bg-orange-500/20 text-orange-300';
-    return 'bg-red-500/20 text-red-300';
+    if (level >= 80) return 'bg-blue-500/20 text-blue-300';
+    if (level >= 50) return 'bg-indigo-500/20 text-indigo-300';
+    if (level >= 20) return 'bg-amber-500/20 text-amber-300';
+    return 'bg-rose-500/20 text-rose-300';
   };
-
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-black text-gray-200">
       <div className="max-w-7xl mx-auto">
-        <div className="bg-gray-800 shadow-lg rounded-lg overflow-hidden border border-gray-700">
+        <div className="bg-gray-900/80 shadow-2xl rounded-lg overflow-hidden backdrop-blur-sm border border-gray-800">
           {/* Header */}
-          <div className="p-6 border-b border-gray-700 flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <Globe className="h-6 w-6 text-blue-400" />
-              <h2 className="text-2xl font-light tracking-wider">REGIONAL DRONE CONSOLE</h2>
+          <div className="p-6 border-b border-gray-800 flex justify-between items-center">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <Globe className="h-7 w-7 text-blue-400" />
+                <GradientText 
+                  text="REGIONAL COMMAND" 
+                  className="text-2xl tracking-wider font-light"
+                />
+              </div>
+              <div className="h-px w-48 bg-gradient-to-r from-blue-500/40 to-transparent mt-1" />
             </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={handleRefresh} 
-                disabled={isLoading}
-                className="bg-blue-500/20 p-2 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/30 transition-colors disabled:opacity-50"
-              >
-                <RefreshCcw className="h-5 w-5" />
-              </button>
-            </div>
+            
+            <button 
+              onClick={handleRefresh} 
+              disabled={isLoading}
+              className="bg-gray-800 p-2 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50 group"
+            >
+              <RefreshCcw className="h-5 w-5 group-hover:text-blue-400 transition-colors" />
+            </button>
           </div>
 
           {/* Notification */}
           {notification && (
-            <div className={`m-6 p-4 rounded-lg border ${
+            <div className={`m-6 p-4 rounded-lg border-l-4 ${
               notification.type === 'success' 
-                ? 'bg-green-500/10 border-green-500/30 text-green-300' 
-                : 'bg-red-500/10 border-red-500/30 text-red-300'
-            } flex items-center gap-2`}>
+                ? 'bg-gray-900/80 border-blue-500 text-blue-300' 
+                : 'bg-gray-900/80 border-red-500 text-red-300'
+            } flex items-center gap-2 backdrop-blur-sm`}>
               {notification.type === 'success' 
                 ? <CheckCircle className="h-5 w-5" /> 
                 : <AlertTriangle className="h-5 w-5" />}
@@ -300,9 +305,9 @@ const RegionalConsole: React.FC = () => {
           <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left side - Regions panel */}
             <div className="lg:col-span-1">
-              <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 shadow-lg">
-                <h3 className="text-xl font-light tracking-wider mb-6 flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-blue-400" />
+              <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
+                <h3 className="text-lg font-light tracking-wider mb-6 flex items-center gap-2 text-blue-300">
+                  <Shield className="h-5 w-5" />
                   COMMAND REGIONS
                 </h3>
                 
@@ -311,15 +316,19 @@ const RegionalConsole: React.FC = () => {
                     <div 
                       key={region.id}
                       onClick={() => setSelectedRegion(selectedRegion?.id === region.id ? null : region)}
-                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                      className={`p-4 rounded-lg cursor-pointer transition-all ${
                         selectedRegion?.id === region.id 
-                          ? 'bg-blue-900/30 border-blue-500 hover:bg-blue-900/40' 
-                          : 'bg-gray-800/50 border-gray-700 hover:bg-gray-700/50'
+                          ? 'bg-blue-900/20 border border-blue-500/40 hover:bg-blue-900/30' 
+                          : 'bg-gray-800/60 border border-gray-800 hover:bg-gray-800/80'
                       }`}
                     >
                       <div className="flex justify-between items-center mb-2">
-                        <div className="font-medium tracking-wider">{region.name}</div>
-                        <div className={`text-xs px-2 py-1 rounded-full border ${getStatusStyles(region.status)}`}>
+                        <div className="font-medium tracking-wider text-white">{region.name}</div>
+                        <div className={`text-xs px-2 py-1 rounded-md ${
+                          region.status === 'ACTIVE' 
+                            ? 'bg-blue-500/20 text-blue-300' 
+                            : 'bg-gray-700/70 text-gray-400'
+                        }`}>
                           {region.status}
                         </div>
                       </div>
@@ -327,43 +336,43 @@ const RegionalConsole: React.FC = () => {
                       <div className="text-sm text-gray-400 mb-2">{region.commanderName}</div>
                       <div className="text-sm text-gray-500 mb-3">{region.area}</div>
                       
-                      <div className="flex gap-3 items-center mt-3 text-sm">
-                        <div className="bg-gray-700 px-3 py-1 rounded-lg flex items-center gap-1">
-                          <span className="font-medium text-blue-400">
+                      <div className="grid grid-cols-2 gap-2 mt-4 text-sm">
+                        <div className="bg-gray-800/80 px-3 py-2 rounded-lg text-center">
+                          <span className="block font-light text-xl text-white">
                             {(dronesByRegion[region.id] || []).length}
                           </span>
-                          <span className="text-gray-400 tracking-wider">DRONES</span>
+                          <span className="text-xs text-gray-400 tracking-wider">TOTAL DRONES</span>
                         </div>
                         
-                        <div className="bg-gray-700 px-3 py-1 rounded-lg flex items-center gap-1">
-                          <span className="font-medium text-green-400">
+                        <div className="bg-gray-800/80 px-3 py-2 rounded-lg text-center">
+                          <span className="block font-light text-xl text-white">
                             {(dronesByRegion[region.id] || []).filter(d => d.status === 'ACTIVE').length}
                           </span>
-                          <span className="text-gray-400 tracking-wider">ACTIVE</span>
+                          <span className="text-xs text-gray-400 tracking-wider">ACTIVE</span>
                         </div>
                       </div>
                     </div>
                   ))}
 
                   <div className="mt-6">
-                    <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+                    <div className="bg-gray-800/80 p-4 rounded-lg">
                       <div className="flex justify-between items-center">
                         <div className="font-medium tracking-wider text-gray-300">Unassigned Drones</div>
-                        <div className="text-xl font-light text-blue-400">
+                        <div className="text-xl font-light text-white">
                           {(dronesByRegion['unassigned'] || []).length}
                         </div>
                       </div>
                       
-                      <div className="mt-3">
+                      <div className="mt-4">
                         <button
                           onClick={() => {
                             setSelectedRegion(null);
                             setUnassignedOnly(!unassignedOnly);
                           }}
-                          className={`w-full py-2 px-3 rounded-lg text-sm tracking-wider border ${
+                          className={`w-full py-2 px-3 rounded-lg text-sm tracking-wider ${
                             unassignedOnly
-                              ? 'bg-blue-500/20 border-blue-500/30 text-blue-300'
-                              : 'bg-gray-700/50 border-gray-700 text-gray-300 hover:bg-gray-700'
+                              ? 'bg-blue-900/20 border border-blue-500/40 text-blue-300'
+                              : 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700'
                           }`}
                         >
                           {unassignedOnly ? 'SHOWING UNASSIGNED' : 'SHOW UNASSIGNED'}
@@ -377,21 +386,21 @@ const RegionalConsole: React.FC = () => {
 
             {/* Right side - Drones panel */}
             <div className="lg:col-span-2">
-              <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 shadow-lg h-full">
+              <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm h-full">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-light tracking-wider flex items-center gap-2">
+                  <h3 className="text-lg font-light tracking-wider flex items-center gap-2 text-blue-300">
                     {selectedRegion 
                       ? <>
-                          <Shield className="h-5 w-5 text-blue-400" />
+                          <Shield className="h-5 w-5" />
                           {selectedRegion.name} DRONES
                         </>
                       : unassignedOnly
                         ? <>
-                            <CirclePlus className="h-5 w-5 text-blue-400" />
+                            <CirclePlus className="h-5 w-5" />
                             UNASSIGNED DRONES
                           </>
                         : <>
-                            <Globe className="h-5 w-5 text-blue-400" />
+                            <Globe className="h-5 w-5" />
                             ALL DRONES ({drones.length})
                           </>
                     }
@@ -400,7 +409,7 @@ const RegionalConsole: React.FC = () => {
 
                 {isLoading ? (
                   <div className="flex justify-center items-center h-64">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+                    <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-600 border-t-blue-500"></div>
                   </div>
                 ) : filteredDrones.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 text-gray-400">
@@ -413,7 +422,7 @@ const RegionalConsole: React.FC = () => {
                     {filteredDrones.map(drone => (
                       <div 
                         key={drone.id}
-                        className="rounded-lg border border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-colors overflow-hidden"
+                        className="rounded-lg border border-gray-800 bg-gray-800/50 hover:bg-gray-800/80 transition-colors overflow-hidden backdrop-blur-sm"
                       >
                         {/* Drone header - always visible */}
                         <div 
@@ -429,36 +438,36 @@ const RegionalConsole: React.FC = () => {
                                 <ChevronDown className="h-4 w-4 text-gray-400" />
                               )}
                             </div>
-                            <div className={`text-xs px-2 py-1 rounded-full border ${getStatusStyles(drone.status)}`}>
+                            <div className={`text-xs px-2 py-1 rounded-md ${getStatusStyles(drone.status)}`}>
                               {drone.status}
                             </div>
                           </div>
                           
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div className="text-sm">
-                              <div className="text-gray-400">Model</div>
-                              <div>{drone.model}</div>
+                              <div className="text-gray-400 mb-1">Model</div>
+                              <div className="text-white">{drone.model}</div>
                             </div>
                             
                             <div className="text-sm">
-                              <div className="text-gray-400">Battery</div>
-                              <div className={`text-sm px-2 py-1 rounded-lg inline-block mt-1 ${getBatteryStyles(drone.batteryStatus)}`}>
+                              <div className="text-gray-400 mb-1">Battery</div>
+                              <div className={`text-sm px-2 py-1 rounded inline-block ${getBatteryStyles(drone.batteryStatus)}`}>
                                 {drone.batteryStatus}%
                               </div>
                             </div>
                             
                             <div className="text-sm">
-                              <div className="text-gray-400">Last Active</div>
-                              <div>{formatDateTime(drone.lastActiveTime)}</div>
+                              <div className="text-gray-400 mb-1">Last Active</div>
+                              <div className="text-white">{formatDateTime(drone.lastActiveTime)}</div>
                             </div>
                             
                             <div className="text-sm">
-                              <div className="text-gray-400">Location</div>
+                              <div className="text-gray-400 mb-1">Location</div>
                               <div className="flex items-center gap-1">
                                 {drone.location ? (
                                   <>
                                     <MapPin className="h-3 w-3 text-blue-400" />
-                                    <span>{drone.location.city}</span>
+                                    <span className="text-white">{drone.location.city}</span>
                                   </>
                                 ) : (
                                   <span className="text-gray-500">Unknown</span>
@@ -470,15 +479,15 @@ const RegionalConsole: React.FC = () => {
                         
                         {/* Expanded drone details */}
                         {expandedDrone === drone.id && (
-                          <div className="px-4 pb-4 border-t border-gray-700 pt-4 bg-gray-700/30">
+                          <div className="px-4 pb-4 border-t border-gray-700 pt-4 bg-gray-800/80">
                             <div className="grid grid-cols-1 gap-4">
                               {/* Map section */}
                               {drone.location && (
-                                <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                                <div className="bg-gray-900/70 p-4 rounded-lg">
                                   <div className="flex justify-between items-center mb-2">
-                                    <h4 className="text-sm font-medium tracking-wider flex items-center gap-2">
-                                      <MapPin className="h-4 w-4 text-blue-400" />
-                                      Last Known Location
+                                    <h4 className="text-sm font-medium tracking-wider flex items-center gap-2 text-blue-300">
+                                      <MapPin className="h-4 w-4" />
+                                      LAST KNOWN LOCATION
                                     </h4>
                                     <button
                                       onClick={() => toggleExpandMap(drone.id)}
@@ -488,12 +497,12 @@ const RegionalConsole: React.FC = () => {
                                     </button>
                                   </div>
                                   
-                                  <div className="mb-2 text-xs text-gray-400">
+                                  <div className="mb-3 text-xs text-gray-400">
                                     Last updated: {formatDateTime(drone.location.timestamp)}
                                   </div>
                                   
-                                  <div className="flex flex-col md:flex-row gap-3">
-                                    <div className={`${expandedMap === drone.id ? 'w-full h-64' : 'w-full h-32 md:w-1/2'} bg-gray-700 rounded-lg overflow-hidden border border-gray-600`}>
+                                  <div className="flex flex-col md:flex-row gap-4">
+                                    <div className={`${expandedMap === drone.id ? 'w-full h-64' : 'w-full h-40 md:w-1/2'} bg-gray-800 rounded-lg overflow-hidden border border-gray-700`}>
                                       <DroneLocationMap 
                                         location={drone.location} 
                                         expanded={expandedMap === drone.id}
@@ -501,15 +510,18 @@ const RegionalConsole: React.FC = () => {
                                     </div>
                                     
                                     {expandedMap !== drone.id && (
-                                      <div className="w-full md:w-1/2 text-sm space-y-2">
-                                        <div>
-                                          <span className="text-gray-400">City:</span> {drone.location.city}
+                                      <div className="w-full md:w-1/2 text-sm space-y-3">
+                                        <div className="bg-gray-800/80 p-2 rounded flex justify-between">
+                                          <span className="text-gray-400">City:</span> 
+                                          <span className="text-white">{drone.location.city}</span>
                                         </div>
-                                        <div>
-                                          <span className="text-gray-400">Area:</span> {drone.location.area}
+                                        <div className="bg-gray-800/80 p-2 rounded flex justify-between">
+                                          <span className="text-gray-400">Area:</span> 
+                                          <span className="text-white">{drone.location.area}</span>
                                         </div>
-                                        <div>
-                                          <span className="text-gray-400">Coordinates:</span> {drone.location.lat.toFixed(4)}, {drone.location.lng.toFixed(4)}
+                                        <div className="bg-gray-800/80 p-2 rounded flex justify-between">
+                                          <span className="text-gray-400">Coordinates:</span> 
+                                          <span className="text-white">{drone.location.lat.toFixed(4)}, {drone.location.lng.toFixed(4)}</span>
                                         </div>
                                       </div>
                                     )}
@@ -518,18 +530,19 @@ const RegionalConsole: React.FC = () => {
                               )}
                               
                               {/* Additional details */}
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                <div className="text-sm">
-                                  <div className="text-gray-400">Flight Hours</div>
-                                  <div>{drone.flightHours} hrs</div>
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="bg-gray-900/70 p-3 rounded-lg">
+                                  <div className="text-gray-400 text-xs mb-1">Flight Hours</div>
+                                  <div className="text-2xl font-light text-white">{drone.flightHours}</div>
+                                  <div className="text-blue-400 text-xs">HOURS</div>
                                 </div>
-                                <div className="text-sm">
-                                  <div className="text-gray-400">Last Maintenance</div>
-                                  <div>{formatDate(drone.lastMaintenance)}</div>
+                                <div className="bg-gray-900/70 p-3 rounded-lg">
+                                  <div className="text-gray-400 text-xs mb-1">Last Maintenance</div>
+                                  <div className="text-md font-light text-white">{formatDate(drone.lastMaintenance)}</div>
                                 </div>
-                                <div className="text-sm">
-                                  <div className="text-gray-400">Region Assignment</div>
-                                  <div>
+                                <div className="bg-gray-900/70 p-3 rounded-lg">
+                                  <div className="text-gray-400 text-xs mb-1">Region</div>
+                                  <div className="text-md font-light text-white">
                                     {drone.regionId 
                                       ? regions.find(r => r.id === drone.regionId)?.name || 'Unknown' 
                                       : 'Unassigned'}
@@ -549,8 +562,8 @@ const RegionalConsole: React.FC = () => {
                                     <button
                                       onClick={() => handleUnassignDrone(drone.id)}
                                       disabled={isLoading || drone.status === 'OFFLINE'}
-                                      className="p-2 rounded-lg border border-red-500/30 text-red-300 
-                                                bg-red-500/10 hover:bg-red-500/20 transition-colors
+                                      className="p-2 rounded-lg border border-rose-500/30 text-rose-300 
+                                                bg-rose-900/10 hover:bg-rose-900/30 transition-colors
                                                 disabled:opacity-50 disabled:cursor-not-allowed"
                                       title="Unassign drone"
                                     >
@@ -563,8 +576,8 @@ const RegionalConsole: React.FC = () => {
                                       <button
                                         onClick={() => handleAssignDrone(drone.id, selectedRegion.id)}
                                         disabled={isLoading || drone.status === 'OFFLINE'}
-                                        className="py-1 px-3 rounded-lg border border-green-500/30 text-green-300 
-                                                  bg-green-500/10 hover:bg-green-500/20 transition-colors
+                                        className="py-1 px-3 rounded-lg border border-blue-500/30 text-blue-300 
+                                                  bg-blue-900/20 hover:bg-blue-900/30 transition-colors
                                                   disabled:opacity-50 disabled:cursor-not-allowed
                                                   flex items-center gap-1 text-sm tracking-wider"
                                       >
@@ -580,7 +593,7 @@ const RegionalConsole: React.FC = () => {
                                               handleAssignDrone(drone.id, e.target.value);
                                             }
                                           }}
-                                          className="bg-gray-700 border border-gray-600 text-sm
+                                          className="bg-gray-800 border border-gray-700 text-sm
                                                     rounded-lg p-2 text-white focus:border-blue-500
                                                     disabled:opacity-50 disabled:cursor-not-allowed"
                                           defaultValue=""
@@ -613,4 +626,4 @@ const RegionalConsole: React.FC = () => {
   );
 };
 
-export default RegionalConsole;
+export default RegionalConsole;  

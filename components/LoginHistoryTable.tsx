@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authApi } from '../lib/api/auth';
 import { useAuth } from '../lib/auth';
+import { RefreshCw, AlertTriangle, Clock, Shield, Database, Wifi } from 'lucide-react';
 
 interface LoginHistoryEntry {
   id: string;
@@ -17,7 +18,6 @@ interface LoginHistoryEntry {
   sessionDuration: number | null;
 }
 
-// Interface used when fetching login history data
 interface LoginHistoryResponse {
   success: boolean;
   totalCount: number;
@@ -30,16 +30,12 @@ interface LoginHistoryTableProps {
   userId?: string;
   limit?: number;
   title?: string;
-  showAllUsers?: boolean; // New prop to explicitly control whether to show all users
+  showAllUsers?: boolean;
 }
 
-/**
- * Login History Table Component
- * Displays a table of user login history with pagination
- */
 export default function LoginHistoryTable({ 
   userId, 
-  limit = 20, // Increased limit to show more history
+  limit = 20,
   title = "Login History",
   showAllUsers = false
 }: LoginHistoryTableProps) {
@@ -52,21 +48,18 @@ export default function LoginHistoryTable({
   const { user } = useAuth();
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  // Format date in a user-friendly way
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
     return date.toLocaleString();
   };
 
-  // Format duration in a user-friendly way - fixed to prevent continuous updates
   const formatDuration = (seconds: number | null, loginTime: string, logoutTime: string | null) => {
     let duration = seconds;
     
-    // If session is active (no logoutTime), calculate duration once
     if (!logoutTime && loginTime) {
       const loginDate = new Date(loginTime);
-      const now = new Date(lastUpdated); // Use lastUpdated instead of current time
+      const now = new Date(lastUpdated);
       duration = Math.floor((now.getTime() - loginDate.getTime()) / 1000);
     }
     
@@ -83,51 +76,58 @@ export default function LoginHistoryTable({
     ].filter(Boolean).join(' ');
   };
 
-  // Format IP address in a user-friendly way
   const formatIpAddress = (ipAddress: string) => {
-    // Remove IPv6 prefix if it's an IPv4-mapped address
     if (ipAddress && ipAddress.startsWith('::ffff:')) {
       return ipAddress.substring(7);
     }
     return ipAddress || 'N/A';
   };
 
-  // Format status with color coding
-  const formatStatus = (status: string) => {
-    const statusStyles = {
-      SUCCESS: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-      FAILED: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
-      EXPIRED: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
-    };
-    
-    const style = statusStyles[status as keyof typeof statusStyles] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-    
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${style}`}>
-        {status}
-      </span>
-    );
+  const getStatusBadge = (status: string) => {
+    switch(status) {
+      case 'SUCCESS':
+        return (
+          <span className="px-2 py-1 rounded text-xs font-medium flex items-center gap-1 bg-gradient-to-r from-emerald-500/20 to-blue-500/20 text-blue-300 border border-blue-500/30">
+            <span className="h-2 w-2 rounded-full bg-blue-400"></span>
+            {status}
+          </span>
+        );
+      case 'FAILED':
+        return (
+          <span className="px-2 py-1 rounded text-xs font-medium flex items-center gap-1 bg-gradient-to-r from-red-500/20 to-rose-500/20 text-rose-300 border border-rose-500/30">
+            <span className="h-2 w-2 rounded-full bg-rose-400"></span>
+            {status}
+          </span>
+        );
+      case 'EXPIRED':
+        return (
+          <span className="px-2 py-1 rounded text-xs font-medium flex items-center gap-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/30">
+            <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+            {status}
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2 py-1 rounded text-xs font-medium bg-gray-600 text-gray-300">
+            {status}
+          </span>
+        );
+    }
   };
 
-  // Fetch login history data - using useCallback to avoid recreating this function on each render
   const fetchLoginHistory = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // System-wide history for Main HQ if showAllUsers is true, otherwise respect userId
       const queryUserId = (user?.role === 'MAIN_HQ' && showAllUsers) ? undefined : userId || user?.id;
       
-      console.log('Fetching login history with userId:', queryUserId, 'showAllUsers:', showAllUsers);
-      
-      // Use a larger limit to get more history
       const response = await authApi.getLoginHistory(page, limit, queryUserId) as LoginHistoryResponse;
       
       if (response.success) {
         setLoginHistory(response.loginHistory);
         setTotalPages(response.pages);
         setTotalEntries(response.totalCount);
-        // Update the lastUpdated timestamp
         setLastUpdated(new Date());
       } else {
         setError('Failed to fetch login history');
@@ -140,57 +140,60 @@ export default function LoginHistoryTable({
     }
   }, [page, limit, userId, user, showAllUsers]);
 
-  // Run a refresh every minute to update any active sessions (but not continuously)
   useEffect(() => {
     const intervalId = setInterval(() => {
       fetchLoginHistory();
-    }, 60000); // Refresh every minute
+    }, 60000);
     
     return () => clearInterval(intervalId);
   }, [fetchLoginHistory]);
 
-  // Fetch data when component mounts or when dependencies change
   useEffect(() => {
     fetchLoginHistory();
   }, [fetchLoginHistory]);
 
-  // Handle page change
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
   };
 
-  // Determine if we should show the username column
   const showUserColumn = user?.role === 'MAIN_HQ' || 
-                         (title && title.toLowerCase().includes('system-wide')) ||
-                         showAllUsers;
+                        (title && title.toLowerCase().includes('system-wide')) ||
+                        showAllUsers;
 
   return (
-    <div className="bg-gray-800 shadow-lg rounded-lg p-6 overflow-hidden">
-      <div className="flex justify-between items-center mb-6">
+    <div className="bg-gradient-to-b from-gray-900/80 to-black/80 shadow-2xl rounded-lg backdrop-blur-sm overflow-hidden border border-gray-800">
+      <div className="flex justify-between items-center p-5 border-b border-gray-800 bg-gradient-to-r from-blue-900/10 to-indigo-900/10">
         <div className="flex flex-col">
-          <h2 className="text-xl font-semibold text-white">{title}</h2>
-          <div className="text-xs text-gray-400 mt-1">
+          <h2 className="text-xl font-light tracking-wider text-blue-300 flex items-center gap-2">
+            <Database className="h-5 w-5 text-blue-400" />
+            {title.toUpperCase()}
+          </h2>
+          <div className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+            <Clock className="h-3 w-3" />
             Last updated: {formatDate(lastUpdated.toISOString())}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-gray-400">
-            {totalEntries > 0 && `Showing ${loginHistory.length} of ${totalEntries} entries`}
-          </div>
+        <div className="flex items-center gap-3">
+          {totalEntries > 0 && (
+            <div className="text-sm bg-gradient-to-r from-blue-900/20 to-indigo-900/20 px-3 py-1 rounded-md border border-blue-500/30">
+              <span className="text-gray-400">Showing</span> <span className="text-blue-300 font-light">{loginHistory.length}</span> <span className="text-gray-400">of</span> <span className="text-blue-300 font-light">{totalEntries}</span>
+            </div>
+          )}
           <button 
-            onClick={fetchLoginHistory} 
-            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
+            onClick={fetchLoginHistory}
+            className="p-2 bg-gradient-to-r from-gray-800 to-gray-900 text-gray-300 hover:text-blue-400 rounded-md transition-colors border border-gray-700 group"
           >
-            Refresh
+            <RefreshCw className="h-5 w-5 group-hover:text-blue-400" />
           </button>
         </div>
       </div>
       
       {error && (
-        <div className="bg-red-900 text-white p-4 rounded-md mb-4">
-          {error}
+        <div className="m-5 p-4 bg-gradient-to-r from-rose-900/20 to-red-900/20 border-l-4 border-rose-500 rounded-md flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-rose-400" />
+          <div className="flex-1 text-rose-300">{error}</div>
           <button 
-            className="ml-4 underline" 
+            className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-white rounded-md text-sm border border-gray-700 transition-colors" 
             onClick={fetchLoginHistory}
           >
             Retry
@@ -200,70 +203,90 @@ export default function LoginHistoryTable({
       
       {loading ? (
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          <div className="relative">
+            <div className="animate-ping absolute inset-0 rounded-full h-12 w-12 bg-blue-400 opacity-10"></div>
+            <div className="animate-spin relative rounded-full h-12 w-12 border-2 border-gray-600 border-t-blue-500"></div>
+          </div>
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-700">
-              <thead className="bg-gray-700">
-                <tr>
+          <div className="overflow-x-auto p-3">
+            <table className="min-w-full">
+              <thead>
+                <tr className="bg-gradient-to-r from-blue-900/10 to-indigo-900/10 text-gray-400 text-xs uppercase tracking-wider">
                   {showUserColumn && (
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left font-medium">
                       User
                     </th>
                   )}
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left font-medium">
                     Login Time
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left font-medium">
                     Logout Time
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left font-medium">
                     Duration
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left font-medium">
                     IP Address
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left font-medium">
                     Status
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-gray-800 divide-y divide-gray-700">
+              <tbody className="divide-y divide-gray-800">
                 {loginHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={showUserColumn ? 6 : 5} className="px-6 py-4 text-sm text-gray-400 text-center">
-                      No login history available
+                    <td colSpan={showUserColumn ? 6 : 5} className="px-6 py-8 text-center">
+                      <div className="flex flex-col items-center text-gray-400">
+                        <Shield className="h-10 w-10 mb-3 opacity-30" />
+                        <p className="text-sm">No login history available</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   loginHistory.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-gray-700">
+                    <tr key={entry.id} className="hover:bg-gradient-to-r hover:from-blue-900/5 hover:to-indigo-900/5 transition-colors">
                       {showUserColumn && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                          {entry.username}
+                        <td className="px-6 py-4 text-sm">
+                          <div className="font-medium text-blue-300">{entry.username}</div>
                         </td>
                       )}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                      <td className="px-6 py-4 text-sm text-gray-200">
                         {formatDate(entry.loginTime)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                        {entry.logoutTime ? formatDate(entry.logoutTime) : 'Active Session'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                        {formatDuration(entry.sessionDuration, entry.loginTime, entry.logoutTime)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                        {formatIpAddress(entry.ipAddress)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {formatStatus(entry.status)}
-                        {entry.failureReason && (
-                          <span className="ml-2 text-xs text-gray-400">
-                            ({entry.failureReason})
+                      <td className="px-6 py-4 text-sm">
+                        {entry.logoutTime ? (
+                          <span className="text-gray-200">{formatDate(entry.logoutTime)}</span>
+                        ) : (
+                          <span className="text-emerald-400 font-medium flex items-center gap-1">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Active Session
                           </span>
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <span className="bg-gradient-to-r from-blue-900/10 to-indigo-900/10 px-2 py-1 rounded text-gray-200">
+                          {formatDuration(entry.sessionDuration, entry.loginTime, entry.logoutTime)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="flex items-center gap-1">
+                          <Wifi className="h-3 w-3 text-blue-400" />
+                          <span className="text-gray-200">{formatIpAddress(entry.ipAddress)}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(entry.status)}
+                          {entry.failureReason && (
+                            <span className="text-xs text-gray-400">
+                              ({entry.failureReason})
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -272,14 +295,13 @@ export default function LoginHistoryTable({
             </table>
           </div>
           
-          {/* Pagination controls */}
           {totalPages > 1 && (
-            <div className="flex justify-center mt-6">
+            <div className="flex justify-center p-4 border-t border-gray-800 bg-gradient-to-r from-blue-900/5 to-indigo-900/5">
               <nav className="flex items-center">
                 <button
                   onClick={() => handlePageChange(page - 1)}
                   disabled={page === 1}
-                  className="px-3 py-1 rounded-md mr-2 bg-gray-700 text-white disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-md mr-2 bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 text-white hover:from-blue-900/20 hover:to-indigo-900/20 disabled:opacity-50 disabled:hover:from-gray-800 disabled:hover:to-gray-900 transition-all text-sm"
                 >
                   Previous
                 </button>
@@ -289,10 +311,10 @@ export default function LoginHistoryTable({
                     <button
                       key={pageNum}
                       onClick={() => handlePageChange(pageNum)}
-                      className={`px-3 py-1 rounded-md ${
+                      className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${
                         pageNum === page
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-700 text-white'
+                          ? 'bg-gradient-to-r from-blue-900/30 to-indigo-900/30 text-blue-300 border border-blue-500/40'
+                          : 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 text-white hover:from-blue-900/10 hover:to-indigo-900/10'
                       }`}
                     >
                       {pageNum}
@@ -303,7 +325,7 @@ export default function LoginHistoryTable({
                 <button
                   onClick={() => handlePageChange(page + 1)}
                   disabled={page === totalPages}
-                  className="px-3 py-1 rounded-md ml-2 bg-gray-700 text-white disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-md ml-2 bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 text-white hover:from-blue-900/20 hover:to-indigo-900/20 disabled:opacity-50 disabled:hover:from-gray-800 disabled:hover:to-gray-900 transition-all text-sm"
                 >
                   Next
                 </button>
