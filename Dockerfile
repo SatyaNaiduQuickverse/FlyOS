@@ -17,7 +17,6 @@ RUN npm run build
 # Production image, copy all the files and run next
 FROM base AS runner
 WORKDIR /app
-
 ENV NODE_ENV production
 
 # Create a non-root user
@@ -26,13 +25,12 @@ RUN adduser --system --uid 1001 nextjs
 
 # Copy only necessary files
 COPY --from=builder /app/public ./public
+# Ensure video directory exists with proper permissions
+RUN mkdir -p ./public/videos && chown -R nextjs:nodejs ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
 USER nextjs
-
 EXPOSE 3000
-
 ENV PORT 3000
-
 CMD ["node", "server.js"]
