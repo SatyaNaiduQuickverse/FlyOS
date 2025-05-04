@@ -49,8 +49,8 @@ api.interceptors.request.use(
     
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
+  (_error) => {
+    return Promise.reject(_error);
   }
 );
 
@@ -135,9 +135,9 @@ export const authApi = {
       }
       
       return response.data;
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response) {
-        throw new Error(error.response.data.message || 'Authentication failed');
+    } catch (_error) {
+      if (axios.isAxiosError(_error) && _error.response) {
+        throw new Error(_error.response.data.message || 'Authentication failed');
       }
       throw new Error('Authentication service unavailable');
     }
@@ -150,7 +150,7 @@ export const authApi = {
     try {
       const response = await api.get<ApiResponse<{ user: User }>>('/verify');
       return response.data.data?.user as User;
-    } catch (error) {
+    } catch (_error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Invalid authentication session');
     }
@@ -171,7 +171,7 @@ export const authApi = {
       }
       
       return newToken || '';
-    } catch (error) {
+    } catch (_error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Failed to refresh token');
     }
@@ -217,7 +217,7 @@ export const authApi = {
       
       const response = await api.get('/login-history', { params });
       return response.data;
-    } catch (error) {
+    } catch (_error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Failed to fetch login history');
     }

@@ -1,3 +1,4 @@
+// lib/auth.tsx
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -35,7 +36,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sessionChecked, setSessionChecked] = useState(false);
+  // Rename unused variable with underscore prefix
+  const [_sessionChecked, setSessionChecked] = useState(false);
   const router = useRouter();
 
   // Clear authentication error
@@ -95,9 +97,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
               throw new Error('Token refresh failed');
             }
-          } catch (refreshError) {
+          } catch (_refreshError) {
             // Both verification and refresh failed, clear session
-            console.error('Token refresh failed:', refreshError);
+            console.error('Token refresh failed:', _refreshError);
             localStorage.removeItem('flyos_user');
             localStorage.removeItem('flyos_token');
             setUser(null);
@@ -236,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // If token is invalid, logout
           await logout();
         }
-      } catch (refreshError) {
+      } catch (_refreshError) {
         // If token is invalid, logout
         if (error instanceof Error && error.message === 'Invalid authentication session') {
           await logout();

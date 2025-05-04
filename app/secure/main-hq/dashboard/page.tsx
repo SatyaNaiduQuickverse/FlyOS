@@ -9,6 +9,7 @@ import LoginHistoryTable from '../../../../components/LoginHistoryTable';
 import RegionalConsole from '../../../../components/RegionalConsole';
 import UserManagement from '../../../../components/UserManagement';
 import GradientText from '../../../../components/GradientText';
+import DroneControlHub from '../../../../components/DroneControl/DroneControlHub';
 import { 
   LayoutGrid, Users, Shield, Bell, 
   CircleAlert, Server, ArrowRightCircle,
@@ -156,6 +157,16 @@ export default function MainHQDashboard() {
             >
               <Server className="h-4 w-4" />
               SYSTEM LOGS
+            </button>
+            <button 
+              onClick={() => setActiveTab('drone-control')}
+              className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                ${activeTab === 'drone-control' 
+                  ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
+            >
+              <Plane className="h-4 w-4" />
+              DRONE CONTROL
             </button>
           </div>
         </div>
@@ -358,6 +369,8 @@ export default function MainHQDashboard() {
             />
           </div>
         )}
+        
+        {activeTab === 'drone-control' && <DroneControlHub />}
       </main>
     </div>
   );
