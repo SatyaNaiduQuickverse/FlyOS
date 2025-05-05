@@ -9,7 +9,7 @@ import LoginHistoryTable from '../../../../components/LoginHistoryTable';
 import RegionalConsole from '../../../../components/RegionalConsole';
 import UserManagement from '../../../../components/UserManagement';
 import GradientText from '../../../../components/GradientText';
-import DroneControlHub from '../../../../components/DroneControl/DroneControlHub';
+import DroneControlHub from '../../../../components/DroneControlHub';
 import { 
   LayoutGrid, Users, Shield, Bell, 
   CircleAlert, Server, ArrowRightCircle,

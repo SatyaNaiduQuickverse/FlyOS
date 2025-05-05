@@ -7,6 +7,7 @@ import {
 import { useRouter } from 'next/navigation';
 import DroneLocationMap from './DroneLocationMap';
 
+// Define the drone interface
 interface DroneData {
   id: string;
   model: string;
@@ -98,9 +99,10 @@ const DroneControlHub: React.FC = () => {
     setSelectedDrone(selectedDrone === droneId ? null : droneId);
   };
 
-  // Handle Control button click
+  // Handle Control button click - FIXED FUNCTION
   const handleControlDrone = (droneId: string) => {
     console.log(`Navigating to drone control page for ${droneId}`);
+    // Using the correct path format and ensuring navigation happens
     router.push(`/secure/main-hq/drone-control/${droneId}`);
   };
 
