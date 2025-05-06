@@ -5,14 +5,15 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { 
   Plane, ArrowLeft, Signal, Battery, Activity,
-  Camera, Navigation, LineChart, Settings
+  LineChart, Settings, Globe, Cpu
 } from 'lucide-react';
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
-import ControlPanel from '../../../../../components/DroneControl/ControlPanel';
-import CameraFeed from '../../../../../components/DroneControl/CameraFeed';
 import DetailedTelemetry from '../../../../../components/DroneControl/DetailedTelemetry';
 import DroneSettings from '../../../../../components/DroneControl/DroneSettings';
+import FinalCombinedControl from '../../../../../components/DroneControl/FinalCombinedControl';
+import DronePWMControl from '../../../../../components/DroneControl/DronePWMControl';
+import DroneControls from '../../../../../components/DroneControl/DroneControls';
 
 interface DroneData {
   id: string;
@@ -39,8 +40,7 @@ export default function DroneControlPage() {
   
   const [drone, setDrone] = useState<DroneData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [controlMode, setControlMode] = useState('monitor');
+  const [activeTab, setActiveTab] = useState('control'); // Default to control tab
   
   useEffect(() => {
     // Fetch drone data - would connect to your API
@@ -67,16 +67,6 @@ export default function DroneControlPage() {
 
   const handleReturnToHub = () => {
     router.push('/secure/main-hq/dashboard');
-  };
-
-  const toggleControlMode = () => {
-    if (controlMode === 'monitor') {
-      if (window.confirm(`Request control of drone ${droneId}?`)) {
-        setControlMode('control');
-      }
-    } else {
-      setControlMode('monitor');
-    }
   };
 
   if (isLoading) {
@@ -144,16 +134,10 @@ export default function DroneControlPage() {
                 <span className="text-white">{drone.signalStrength}%</span>
               </div>
               
-              <button
-                onClick={toggleControlMode}
-                className={`px-4 py-2 rounded-lg text-sm border ${
-                  controlMode === 'control'
-                    ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
-                    : 'bg-gray-800 border-gray-700 text-gray-300'
-                }`}
-              >
-                {controlMode === 'control' ? 'RELEASE CONTROL' : 'REQUEST CONTROL'}
-              </button>
+              {/* Live Mission Indicator */}
+              <div className="bg-blue-900/30 px-3 py-1 rounded-lg border border-blue-500/30">
+                <span className="text-sm font-light text-blue-300 tracking-wider">{drone.mission}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -180,18 +164,28 @@ export default function DroneControlPage() {
                   ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
             >
-              <Navigation className="h-4 w-4" />
-              CONTROL
+              <Globe className="h-4 w-4" />
+              CONTROL CENTER
             </button>
             <button 
-              onClick={() => setActiveTab('camera')}
+              onClick={() => setActiveTab('pwm-control')}
               className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
-                ${activeTab === 'camera' 
+                ${activeTab === 'pwm-control' 
                   ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
             >
-              <Camera className="h-4 w-4" />
-              CAMERA FEED
+              <Cpu className="h-4 w-4" />
+              PWM CONTROL
+            </button>
+            <button 
+              onClick={() => setActiveTab('direct-control')}
+              className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                ${activeTab === 'direct-control' 
+                  ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
+            >
+              <Plane className="h-4 w-4" />
+              DIRECT CONTROL
             </button>
             <button 
               onClick={() => setActiveTab('telemetry')}
@@ -231,18 +225,27 @@ export default function DroneControlPage() {
         )}
         
         {activeTab === 'control' && (
-          <ControlPanel 
-            drone={drone} 
-            isControlEnabled={controlMode === 'control'} 
-            onRequestControl={toggleControlMode}
-          />
+          <FinalCombinedControl drone={drone} />
         )}
         
-        {activeTab === 'camera' && (
-          <CameraFeed 
-            drone={drone}
-            isControlEnabled={controlMode === 'control'}
-          />
+        {activeTab === 'pwm-control' && (
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h3 className="text-lg font-light tracking-wider text-blue-300 mb-4 flex items-center gap-2">
+              <Cpu className="h-5 w-5" />
+              PWM CONTROL INTERFACE
+            </h3>
+            <DronePWMControl />
+          </div>
+        )}
+        
+        {activeTab === 'direct-control' && (
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h3 className="text-lg font-light tracking-wider text-blue-300 mb-4 flex items-center gap-2">
+              <Plane className="h-5 w-5" />
+              DIRECT CONTROL INTERFACE
+            </h3>
+            <DroneControls />
+          </div>
         )}
         
         {activeTab === 'telemetry' && (
@@ -250,9 +253,7 @@ export default function DroneControlPage() {
         )}
         
         {activeTab === 'settings' && (
-          <DroneSettings 
-            isControlEnabled={controlMode === 'control'}
-          />
+          <DroneSettings isControlEnabled={true} />
         )}
       </main>
     </div>
