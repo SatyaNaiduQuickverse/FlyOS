@@ -1,8 +1,5 @@
 // components/DroneControl/WaypointDropbox.tsx
 import React, { useState, useRef, useEffect } from 'react';
-// Comment out actual socket implementation
-// import socketManager from '../../utils/socketManager';
-// import { waypointStore } from '../../utils/waypointStore';
 
 interface Waypoint {
   seq: number;
@@ -11,16 +8,24 @@ interface Waypoint {
   alt: number;
 }
 
-// Mock socket manager for UI functionality with proper type definitions
+// Define proper interface types
+interface DataEvent {
+  [key: string]: unknown; // Use unknown instead of any
+}
+
+// Use a generic base type for any socket data
+type SocketEventCallback = (data: DataEvent) => void;
+
+// Mock socket manager with proper type definitions
 const socketManager = {
   isConnected: (): boolean => true,
   connect: (): void => console.log('Mock: Socket connected'),
   disconnect: (): void => console.log('Mock: Socket disconnected'),
-  subscribe: (event: string, callback: (data: any) => void): void => 
+  subscribe: (event: string, callback: SocketEventCallback): void => 
     console.log(`Mock: Subscribed to ${event}`),
-  unsubscribe: (event: string, callback: (data: any) => void): void => 
+  unsubscribe: (event: string, callback: SocketEventCallback): void => 
     console.log(`Mock: Unsubscribed from ${event}`),
-  sendCommand: (command: string, data?: any): boolean => {
+  sendCommand: (command: string, data?: Record<string, unknown>): boolean => {
     console.log(`Mock: Sending command ${command}`, data);
     return true;
   }
@@ -59,29 +64,27 @@ const WaypointDropbox: React.FC = () => {
     socketManager.connect();
 
     // Subscribe to various status updates
-    const handleConnection = (data: any): void => {
-      // Mock implementation
+    const handleConnection: SocketEventCallback = () => {
+      // Implementation preserved for future backend integration
       setIsConnected(true);
       console.log('Mock: Connected to drone');
     };
 
-    const handleTelemetry = (data: any): void => {
-      // Mock implementation
-      // If real data is needed, uncomment and implement properly
-      /*
-      if (data.flight_mode === 'AUTO') {
-        setMissionStatus('running');
+    const handleTelemetry: SocketEventCallback = (data) => {
+      // Implementation preserved for future backend integration
+      if (typeof data === 'object' && data !== null) {
+        if ('flight_mode' in data && data.flight_mode === 'AUTO') {
+          setMissionStatus('running');
+        }
+        if ('armed' in data && typeof data.armed === 'boolean') {
+          setIsArmed(data.armed);
+        }
       }
-      if (data.armed !== undefined) {
-        setIsArmed(data.armed);
-      }
-      */
     };
 
-    const handleCommandResponse = (data: any): void => {
-      // Mock implementation
-      // Real implementation would process actual response data
-      console.log('Mock Command response:', data);
+    const handleCommandResponse: SocketEventCallback = () => {
+      // Implementation preserved for future backend integration
+      console.log('Mock Command response received');
     };
 
     socketManager.subscribe('connection', handleConnection);
@@ -98,11 +101,9 @@ const WaypointDropbox: React.FC = () => {
 
   const validateWaypointFile = async (file: File): Promise<boolean> => {
     try {
-      const content = await file.text();
-      // Simplified validation for UI demo
-      // Actual implementation would parse and validate the content
-      
-      console.log('Mock: Validating waypoint file');
+      const fileContent = await file.text();
+      // Save fileContent for future backend integration
+      console.log('Mock: Validating waypoint file', fileContent.substring(0, 50) + '...');
       
       // Mock successful validation
       const mockWaypoints: Waypoint[] = Array(12).fill({}).map((_, i) => ({
@@ -189,6 +190,13 @@ const WaypointDropbox: React.FC = () => {
         message: 'Please upload a .txt file'
       });
     }
+  };
+
+  const handleDivClick = (): void => {
+    if (missionStatus === 'running' || isArmed) {
+      return;
+    }
+    inputRef.current?.click();
   };
 
   const handleRun = async (): Promise<void> => {
@@ -320,13 +328,6 @@ const WaypointDropbox: React.FC = () => {
         message: 'Mission waypoints cleared successfully.'
       });
     }, 1000);
-  };
-
-  const handleDivClick = (): void => {
-    if (missionStatus === 'running' || isArmed) {
-      return;
-    }
-    inputRef.current?.click();
   };
 
   return (

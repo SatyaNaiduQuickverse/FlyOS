@@ -2,40 +2,24 @@
 import React, { useState, useEffect } from 'react';
 import { Package, AlertCircle } from 'lucide-react';
 
-// Comment out actual socket implementation
-// import socketManager from '../../utils/socketManager';
+// Use a more specific type for socket data
+type SocketEventData = Record<string, unknown>;
+type SocketEventCallback = (data: SocketEventData) => void;
 
-// Define types for socket data
-interface TeensyData {
-  connected: boolean;
-}
-
-interface TelemetryData {
-  teensy?: TeensyData;
-}
-
-interface LatchStatusData {
-  status?: string;
-}
-
-// Mock socket manager with proper TypeScript types
+// Mock socket manager with proper type definitions
 const socketManager = {
   isConnected: (): boolean => true,
   connect: (): void => console.log('Mock: Socket connected'),
   disconnect: (): void => console.log('Mock: Socket disconnected'),
-  subscribe: (event: string, callback: (data: TelemetryData | LatchStatusData) => void): void => 
+  subscribe: (event: string, callback: SocketEventCallback): void => 
     console.log(`Mock: Subscribed to ${event}`),
-  unsubscribe: (event: string, callback: (data: TelemetryData | LatchStatusData) => void): void => 
+  unsubscribe: (event: string, callback: SocketEventCallback): void => 
     console.log(`Mock: Unsubscribed from ${event}`),
   sendCommand: (command: string, data?: Record<string, unknown>): boolean => {
     console.log(`Mock: Sending command ${command}`, data);
     return true;
   }
 };
-
-// Create unused callbacks with proper types to prevent TypeScript warnings
-const unusedTelemetryCallback = (_data: TelemetryData): void => {};
-const unusedLatchStatusCallback = (_data: LatchStatusData): void => {};
 
 const DronePayload: React.FC = () => {
   const [bayStatus, setBayStatus] = useState<string>('UNKNOWN');
@@ -46,44 +30,33 @@ const DronePayload: React.FC = () => {
   useEffect(() => {
     socketManager.connect();
 
-    const handleTelemetry = (data: TelemetryData): void => {
-      // Mock implementation
-      // Avoid unused variable warning with void operation
-      void data;
-      
-      // If real data is needed, uncomment and implement properly
-      /*
-      if (data?.teensy) {
-        setIsConnected(data.teensy.connected);
-      }
-      */
-    };
-
-    const handleLatchStatus = (data: LatchStatusData): void => {
-      // Mock implementation
-      // Avoid unused variable warning with void operation
-      void data;
-      
-      // If real data is needed, uncomment and implement properly
-      /*
-      if (data?.status) {
+    // Combined handler for telemetry and status
+    const handleSocketData: SocketEventCallback = (data) => {
+      // Check for teensy connection property
+      if (typeof data === 'object' && data !== null) {
+        const teensyData = data.teensy as { connected?: boolean } | undefined;
+        if (teensyData && typeof teensyData.connected === 'boolean') {
+          setIsConnected(teensyData.connected);
+        }
+        
+        // Check for status property
         const status = data.status;
-        setBayStatus(status);
-
-        // Clear loading state when operation completes
-        if (status === 'OPENED' || status === 'CLOSED') {
-          setIsLoading(false);
+        if (typeof status === 'string') {
+          setBayStatus(status);
+          
+          if (status === 'OPENED' || status === 'CLOSED') {
+            setIsLoading(false);
+          }
         }
       }
-      */
     };
 
-    socketManager.subscribe('telemetry', handleTelemetry);
-    socketManager.subscribe('latch_status', handleLatchStatus);
+    socketManager.subscribe('telemetry', handleSocketData);
+    socketManager.subscribe('latch_status', handleSocketData);
 
     return () => {
-      socketManager.unsubscribe('telemetry', handleTelemetry);
-      socketManager.unsubscribe('latch_status', handleLatchStatus);
+      socketManager.unsubscribe('telemetry', handleSocketData);
+      socketManager.unsubscribe('latch_status', handleSocketData);
     };
   }, []);
 
@@ -136,10 +109,6 @@ const DronePayload: React.FC = () => {
         return 'text-gray-400';
     }
   };
-
-  // To avoid unused variable warning
-  void setIsConnected;
-  void error;
 
   return (
     <div className="w-full">
