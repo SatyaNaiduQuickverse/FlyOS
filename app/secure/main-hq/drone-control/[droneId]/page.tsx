@@ -5,15 +5,17 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { 
   Plane, ArrowLeft, Signal, Battery, Activity,
-  LineChart, Settings, Globe, Cpu
+  LineChart, Settings, Globe
 } from 'lucide-react';
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
 import DetailedTelemetry from '../../../../../components/DroneControl/DetailedTelemetry';
 import DroneSettings from '../../../../../components/DroneControl/DroneSettings';
 import FinalCombinedControl from '../../../../../components/DroneControl/FinalCombinedControl';
-import DronePWMControl from '../../../../../components/DroneControl/DronePWMControl';
 import DroneControls from '../../../../../components/DroneControl/DroneControls';
+import WaypointDropbox from '../../../../../components/DroneControl/WaypointDropbox';
+import DronePayload from '../../../../../components/DroneControl/DronePayload';
+import DronePWMControl from '../../../../../components/DroneControl/DronePWMControl';
 
 interface DroneData {
   id: string;
@@ -168,16 +170,6 @@ export default function DroneControlPage() {
               CONTROL CENTER
             </button>
             <button 
-              onClick={() => setActiveTab('pwm-control')}
-              className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
-                ${activeTab === 'pwm-control' 
-                  ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
-            >
-              <Cpu className="h-4 w-4" />
-              PWM CONTROL
-            </button>
-            <button 
               onClick={() => setActiveTab('direct-control')}
               className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
                 ${activeTab === 'direct-control' 
@@ -225,16 +217,31 @@ export default function DroneControlPage() {
         )}
         
         {activeTab === 'control' && (
-          <FinalCombinedControl drone={drone} />
-        )}
-        
-        {activeTab === 'pwm-control' && (
-          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
-            <h3 className="text-lg font-light tracking-wider text-blue-300 mb-4 flex items-center gap-2">
-              <Cpu className="h-5 w-5" />
-              PWM CONTROL INTERFACE
-            </h3>
-            <DronePWMControl />
+          <div className="space-y-6">
+            {/* Camera and basic controls */}
+            <FinalCombinedControl drone={drone} />
+            
+            {/* Advanced control systems - Grid layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left column - PWM Control */}
+              <div>
+                <h3 className="text-lg font-light mb-4 text-blue-300">PWM Control</h3>
+                <DronePWMControl />
+              </div>
+              
+              {/* Right column - Waypoint and Payload */}
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-light mb-4 text-blue-300">Waypoint Mission</h3>
+                  <WaypointDropbox />
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-light mb-4 text-blue-300">Payload Bay</h3>
+                  <DronePayload />
+                </div>
+              </div>
+            </div>
           </div>
         )}
         
