@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { 
   Plane, ArrowLeft, Signal, Battery, Activity,
-  LineChart, Settings, Globe
+  LineChart, Settings, Globe, MapPin
 } from 'lucide-react';
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
@@ -16,6 +16,7 @@ import DroneControls from '../../../../../components/DroneControl/DroneControls'
 import WaypointDropbox from '../../../../../components/DroneControl/WaypointDropbox';
 import DronePayload from '../../../../../components/DroneControl/DronePayload';
 import DronePWMControl from '../../../../../components/DroneControl/DronePWMControl';
+import DroneMap from '../../../../../components/DroneControl/DroneMap';
 
 interface DroneData {
   id: string;
@@ -220,6 +221,15 @@ export default function DroneControlPage() {
           <div className="space-y-6">
             {/* Camera and basic controls */}
             <FinalCombinedControl drone={drone} />
+            
+            {/* Mission Map */}
+            <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+              <h3 className="text-lg font-light mb-4 text-blue-300 flex items-center gap-2">
+                <MapPin className="h-5 w-5" />
+                MISSION MAP
+              </h3>
+              <DroneMap className="h-[500px]" />
+            </div>
             
             {/* Advanced control systems - Grid layout */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

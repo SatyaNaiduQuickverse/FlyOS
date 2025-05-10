@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Authentication Models (already in your existing system)
+model User {
+  id            String      @id @default(uuid())
+  username      String      @unique
+  password      String
+  fullName      String
+  email         String      @unique
+  role          UserRole
+  regionId      String?
+  status        UserStatus  @default(ACTIVE)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relationships
+  region        Region?     @relation(fields: [regionId], references: [id])
+  loginHistory  LoginHistory[]
+  drones        Drone[]     @relation("OperatorDrones")
+  operators     User[]      @relation("CommanderOperators", references: [id])
+  commander     User?       @relation("CommanderOperators", fields: [commanderId], references: [id])
+  commanderId   String?
+  
+  @@index([role])
+  @@index([regionId])
+}
+
+// Other existing models...
+
+// Drone model
+model Drone {
+  id            String      @id
+  model         String
+  status        DroneStatus @default(STANDBY)
+  regionId      String?
+  operatorId    String?
+  lastMaintenance DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  // Relationships
+  region        Region?     @relation(fields: [regionId], references: [id])
+  operator      User?       @relation("OperatorDrones", fields: [operatorId], references: [id])
+  
+  @@index([regionId])
+  @@index([operatorId])
+  @@index([status])
+}
+
+// Enums
+enum UserRole {
+  MAIN_HQ
+  REGIONAL_HQ
+  OPERATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DroneStatus {
+  ACTIVE
+  STANDBY
+  MAINTENANCE
+  OFFLINE
+}

@@ -206,10 +206,10 @@ const DronePWMControl: React.FC = () => {
         </div>
       )}
 
-      {/* Three-Column Layout */}
+      {/* Two-Column Layout (removed the Control Mapping column) */}
       <div className="flex flex-row space-x-8">
         {/* Column 1: Status & Flight Controls */}
-        <div className="w-1/3 space-y-6">
+        <div className="w-1/2 space-y-6">
           {/* Status Bar */}
           <div className="bg-slate-800/50 p-6 rounded-lg border border-gray-800 space-y-4">
             <div className="flex flex-col space-y-3">
@@ -267,7 +267,7 @@ const DronePWMControl: React.FC = () => {
         </div>
 
         {/* Column 2: PWM Values & Toggle */}
-        <div className="w-1/3 space-y-6">
+        <div className="w-1/2 space-y-6">
           <div className="space-y-4">
             <h2 className="text-lg font-light tracking-wider">PWM VALUES</h2>
             {/* Gauges */}
@@ -291,32 +291,6 @@ const DronePWMControl: React.FC = () => {
                   }`}
                 />
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Column 3: Control Mapping */}
-        <div className="w-1/3 space-y-4">
-          <div className="bg-slate-800/50 p-6 rounded-lg border border-gray-800">
-            <h3 className="text-lg font-light tracking-wider mb-6">CONTROL MAPPING</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {Object.entries(keyMappings).map(([key, { action }]) => {
-                const isPressed = pressedKeysRef.current.has(key);
-                const displayKey = key === 'p' ? 'P' : key === ';' ? ';' : key === 'l' ? 'L' : key === "'" ? "'" : key.toUpperCase();
-                return (
-                  <div key={key} className="flex items-center space-x-3">
-                    <span className={`inline-flex items-center justify-center w-10 h-10 rounded-lg 
-                      border font-mono text-sm transition-all duration-300 ${
-                      isPressed 
-                        ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' 
-                        : 'bg-slate-900/50 text-gray-400 border-gray-800'
-                    }`}>
-                      {displayKey}
-                    </span>
-                    <span className="text-gray-400 text-sm tracking-wider">{action}</span>
-                  </div>
-                );
-              })}
             </div>
           </div>
         </div>

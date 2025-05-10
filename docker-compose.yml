@@ -1,5 +1,7 @@
 version: '3.8'
+
 services:
+  # Frontend (your existing Next.js app)
   frontend:
     build:
       context: .
@@ -9,42 +11,24 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api
-      - AUTH_SERVICE_URL=http://auth-service:4000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:3001/ws
     depends_on:
-      - auth-service
+      - drone-db-service
+      - realtime-service
     networks:
       - flyos-network
     restart: unless-stopped
-  auth-service:
-    build:
-      context: ./services/auth
-      dockerfile: Dockerfile
-    expose:
-      - "4000"
-    environment:
-      - NODE_ENV=production
-      - JWT_SECRET=your_secure_jwt_secret_key
-      - ACCESS_TOKEN_EXPIRY=1h
-      - REFRESH_TOKEN_EXPIRY=7d
-      - POSTGRES_HOST=postgres
-      - POSTGRES_USER=flyos_admin
-      - POSTGRES_PASSWORD=secure_password
-      - POSTGRES_DB=flyos_db
-      - CORS_ORIGIN=http://frontend:3000
-      - FORCE_DB_SYNC=true
-    depends_on:
-      - postgres
-    networks:
-      - flyos-network
-    restart: unless-stopped
-  postgres:
-    image: postgres:15
+
+  # TimescaleDB database
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
     environment:
       POSTGRES_USER: flyos_admin
       POSTGRES_PASSWORD: secure_password
       POSTGRES_DB: flyos_db
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./services/drone-db-service/migrations/sql:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     networks:
@@ -55,8 +39,66 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Redis for real-time data
+  redis:
+    image: redis:7
+    command: redis-server --appendonly yes --requirepass secure_redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - flyos-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Database Service
+  drone-db-service:
+    build:
+      context: ./services/drone-db-service
+      dockerfile: Dockerfile
+    depends_on:
+      - timescaledb
+      - redis
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - DATABASE_URL=postgresql://flyos_admin:secure_password@timescaledb:5432/flyos_db
+      - REDIS_URL=redis://default:secure_redis_password@redis:6379
+      - JWT_SECRET=your_jwt_secret_here
+    ports:
+      - "4001:4001"
+    networks:
+      - flyos-network
+    restart: unless-stopped
+
+  # Real-time Service
+  realtime-service:
+    build:
+      context: ./services/realtime-service
+      dockerfile: Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - REDIS_URL=redis://default:secure_redis_password@redis:6379
+      - JWT_SECRET=your_jwt_secret_here
+    ports:
+      - "4002:4002"
+    networks:
+      - flyos-network
+    restart: unless-stopped
+
 networks:
   flyos-network:
     driver: bridge
+
 volumes:
-  postgres_data:
+  timescaledb_data:
+  redis_data:

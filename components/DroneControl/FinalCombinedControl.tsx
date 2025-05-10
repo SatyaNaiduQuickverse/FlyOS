@@ -264,9 +264,6 @@ const FinalCombinedControl: React.FC<FinalCombinedControlProps> = ({ drone }) =>
         </div>
 
         {/* PWM Control Panel - Main control component */}
-        <div className="mb-6">
-          <DronePWMControl />
-        </div>
       </div>
     </div>
   );
