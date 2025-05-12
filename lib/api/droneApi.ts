@@ -1,4 +1,11 @@
+// lib/api/droneApi.ts
 import axios from 'axios';
+import { getLocalStorageItem } from '../utils/browser';
+
+// Define types to replace 'any'
+interface CommandParameters {
+  [key: string]: string | number | boolean | object;
+}
 
 // Create API client
 const apiClient = axios.create({
@@ -11,7 +18,7 @@ const apiClient = axios.create({
 // Add authentication interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = getLocalStorageItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -28,7 +35,7 @@ export const getDroneState = async (droneId: string) => {
     const response = await apiClient.get(`/drones/${droneId}/state`);
     return response.data;
   } catch (error) {
-    console.error(`Error getting drone state: ${error}`);
+    console.error(`Error getting drone state:`, error);
     throw error;
   }
 };
@@ -50,7 +57,7 @@ export const getHistoricalTelemetry = async (
     });
     return response.data;
   } catch (error) {
-    console.error(`Error getting historical telemetry: ${error}`);
+    console.error(`Error getting historical telemetry:`, error);
     throw error;
   }
 };
@@ -59,7 +66,7 @@ export const getHistoricalTelemetry = async (
 export const sendDroneCommand = async (
   droneId: string,
   commandType: string,
-  parameters: any = {}
+  parameters: CommandParameters = {}
 ) => {
   try {
     const response = await apiClient.post(`/drones/${droneId}/command`, {
@@ -68,7 +75,7 @@ export const sendDroneCommand = async (
     });
     return response.data;
   } catch (error) {
-    console.error(`Error sending drone command: ${error}`);
+    console.error(`Error sending drone command:`, error);
     throw error;
   }
 };
@@ -84,7 +91,7 @@ export const getCommandHistory = async (
     });
     return response.data;
   } catch (error) {
-    console.error(`Error getting command history: ${error}`);
+    console.error(`Error getting command history:`, error);
     throw error;
   }
 };

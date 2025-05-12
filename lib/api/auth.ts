@@ -1,6 +1,7 @@
 // lib/api/auth.ts
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { User } from '../../types/auth';
+import { isBrowser, getLocalStorageItem, setLocalStorageItem, removeLocalStorageItem } from '../utils/browser';
 
 // Base API URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
@@ -40,7 +41,7 @@ interface LoginResponse {
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
     // Get token from localStorage for backwards compatibility
-    const token = typeof window !== 'undefined' ? localStorage.getItem('flyos_token') : null;
+    const token = getLocalStorageItem('flyos_token');
     
     // If token exists, add to Authorization header
     if (token && config.headers) {
@@ -79,9 +80,7 @@ api.interceptors.response.use(
         
         if (refreshResponse.data.success && newToken) {
           // Store new token in localStorage for backward compatibility
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('flyos_token', newToken);
-          }
+          setLocalStorageItem('flyos_token', newToken);
           
           // Update header and retry original request
           if (originalRequest.headers) {
@@ -95,12 +94,12 @@ api.interceptors.response.use(
         console.error('Token refresh failed:', refreshError);
         
         // Only redirect to login if we're in browser environment
-        if (typeof window !== 'undefined') {
+        if (isBrowser) {
           // Check if we're already on the login page to avoid redirect loops
           if (!window.location.pathname.includes('/auth/login')) {
             // Keep current URL to redirect back after login
             const currentPath = window.location.pathname + window.location.search;
-            localStorage.setItem('flyos_redirect_after_login', currentPath);
+            setLocalStorageItem('flyos_redirect_after_login', currentPath);
             
             // Redirect to login page
             window.location.href = '/auth/login';
@@ -126,12 +125,12 @@ export const authApi = {
       });
       
       // Store token in localStorage for backward compatibility
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('flyos_token', response.data.token);
-        localStorage.setItem('flyos_user', JSON.stringify(response.data.user));
+      if (isBrowser) {
+        setLocalStorageItem('flyos_token', response.data.token);
+        setLocalStorageItem('flyos_user', JSON.stringify(response.data.user));
         
         // Store session ID for logout tracking
-        localStorage.setItem('flyos_session_id', response.data.sessionId);
+        setLocalStorageItem('flyos_session_id', response.data.sessionId);
       }
       
       return response.data;
@@ -166,8 +165,8 @@ export const authApi = {
       // Get token from response (handle both patterns)
       const newToken = response.data.token || response.data.data?.token;
       
-      if (newToken && typeof window !== 'undefined') {
-        localStorage.setItem('flyos_token', newToken);
+      if (newToken && isBrowser) {
+        setLocalStorageItem('flyos_token', newToken);
       }
       
       return newToken || '';
@@ -183,26 +182,25 @@ export const authApi = {
   logout: async (): Promise<void> => {
     try {
       // Get session ID from local storage if available
-      const sessionId = typeof window !== 'undefined' ? 
-        localStorage.getItem('flyos_session_id') : null;
+      const sessionId = getLocalStorageItem('flyos_session_id');
       
       // Call logout endpoint
       await api.post('/logout', { sessionId });
       
       // Clear local storage
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('flyos_token');
-        localStorage.removeItem('flyos_user');
-        localStorage.removeItem('flyos_session_id');
+      if (isBrowser) {
+        removeLocalStorageItem('flyos_token');
+        removeLocalStorageItem('flyos_user');
+        removeLocalStorageItem('flyos_session_id');
       }
     } catch (logoutError) {
       console.error('Logout error:', logoutError);
       
       // Still clear local storage even if API call fails
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('flyos_token');
-        localStorage.removeItem('flyos_user');
-        localStorage.removeItem('flyos_session_id');
+      if (isBrowser) {
+        removeLocalStorageItem('flyos_token');
+        removeLocalStorageItem('flyos_user');
+        removeLocalStorageItem('flyos_session_id');
       }
     }
   },

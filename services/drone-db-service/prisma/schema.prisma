@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User Authentication Models (already in your existing system)
+// User Authentication Models
 model User {
   id            String      @id @default(uuid())
   username      String      @unique
@@ -24,7 +24,9 @@ model User {
   region        Region?     @relation(fields: [regionId], references: [id])
   loginHistory  LoginHistory[]
   drones        Drone[]     @relation("OperatorDrones")
-  operators     User[]      @relation("CommanderOperators", references: [id])
+  
+  // Self-relation fixed - CommanderOperators relation
+  operators     User[]      @relation("CommanderOperators")
   commander     User?       @relation("CommanderOperators", fields: [commanderId], references: [id])
   commanderId   String?
   
@@ -32,7 +34,39 @@ model User {
   @@index([regionId])
 }
 
-// Other existing models...
+// Region model
+model Region {
+  id            String      @id
+  name          String
+  commanderName String?
+  status        String      @default("ACTIVE")
+  area          String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  // Relationships
+  users         User[]
+  drones        Drone[]
+}
+
+// LoginHistory model
+model LoginHistory {
+  id            String      @id @default(uuid())
+  userId        String
+  username      String
+  ipAddress     String?
+  userAgent     String?
+  loginTime     DateTime    @default(now())
+  logoutTime    DateTime?
+  status        String      @default("SUCCESS")
+  failureReason String?
+  sessionDuration Int?
+  
+  // Relationships
+  user          User        @relation(fields: [userId], references: [id])
+  
+  @@index([userId])
+}
 
 // Drone model
 model Drone {
