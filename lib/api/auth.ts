@@ -73,7 +73,7 @@ api.interceptors.response.use(
       
       try {
         // Try to refresh token
-        const refreshResponse = await api.post<ApiResponse<{ token: string }>>('/refresh');
+        const refreshResponse = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
         
         // Check for token in response (handle both patterns)
         const newToken = refreshResponse.data.token || refreshResponse.data.data?.token;
@@ -119,7 +119,7 @@ export const authApi = {
    */
   login: async (username: string, password: string): Promise<LoginResponse> => {
     try {
-      const response = await api.post<LoginResponse>('/login', { 
+      const response = await api.post<LoginResponse>('/auth/login', { 
         username, 
         password 
       });
@@ -147,7 +147,7 @@ export const authApi = {
    */
   verifyToken: async (): Promise<User> => {
     try {
-      const response = await api.get<ApiResponse<{ user: User }>>('/verify');
+      const response = await api.get<ApiResponse<{ user: User }>>('/auth/verify');
       return response.data.data?.user as User;
     } catch (_error) {
       // Ignore variable to satisfy ESLint
@@ -160,7 +160,7 @@ export const authApi = {
    */
   refreshToken: async (): Promise<string> => {
     try {
-      const response = await api.post<ApiResponse<{ token: string }>>('/refresh');
+      const response = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
       
       // Get token from response (handle both patterns)
       const newToken = response.data.token || response.data.data?.token;
@@ -185,7 +185,7 @@ export const authApi = {
       const sessionId = getLocalStorageItem('flyos_session_id');
       
       // Call logout endpoint
-      await api.post('/logout', { sessionId });
+      await api.post('/auth/logout', { sessionId });
       
       // Clear local storage
       if (isBrowser) {

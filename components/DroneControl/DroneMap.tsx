@@ -1,99 +1,42 @@
 // components/DroneControl/DroneMap.tsx
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+import dynamic from 'next/dynamic';
+import { Globe, Maximize2, Eye, MapPin, Layers, X } from 'lucide-react';
 import { waypointStore } from '../../utils/waypointStore';
 import type { Waypoint } from '../../utils/waypointStore';
-import L from 'leaflet';
-import { Globe, Maximize2, Eye, MapPin, Layers, X } from 'lucide-react';
 
-// Fix Leaflet icon issues with TypeScript-safe approach
-// Instead of modifying prototype, we'll create custom icons directly
-const defaultIcon = L.icon({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
+// Define interface for DroneMapProps
+interface DroneMapProps {
+  className?: string;
+}
 
-// Set default icon for all markers
-L.Marker.prototype.options.icon = defaultIcon;
-
-// Custom icons
-const droneIcon = L.divIcon({
-  className: 'drone-icon',
-  html: `
-    <div class='marker-container'>
-      <div class='center-dot'></div>
-      <div class='ring'></div>
-      <div class='crosshair'></div>
+// Create a placeholder component for server-side rendering
+const DroneMapPlaceholder: React.FC<DroneMapProps> = ({ className = '' }) => {
+  return (
+    <div className={`relative bg-slate-900/50 text-white rounded-lg border border-gray-800 backdrop-blur-sm shadow-slate-900/50 overflow-hidden ${className || 'h-[500px]'} flex items-center justify-center`}>
+      <div className="text-gray-400 flex flex-col items-center gap-3">
+        <Globe className="h-8 w-8 opacity-50" />
+        <div>Loading map interface...</div>
+      </div>
     </div>
-  `,
-  iconSize: [40, 40],
-  iconAnchor: [20, 20]
-});
+  );
+};
 
-const waypointIcon = L.divIcon({
-  className: 'waypoint-icon',
-  html: `
-    <div class='waypoint-container'>
-      <div class='waypoint-dot'></div>
-      <div class='waypoint-ring'></div>
-    </div>
-  `,
-  iconSize: [30, 30],
-  iconAnchor: [15, 15]
-});
-
-// Map types
+// Map types enum
 enum MapType {
   OSM = 'OpenStreetMap',
   SATELLITE = 'Satellite'
 }
 
-// MapUpdater component for Leaflet
-function MapUpdater({ center, zoom }: { center: [number, number]; zoom: number }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (center[0] !== 0 && center[1] !== 0) {
-      map.setView(center, zoom);
-    }
-  }, [center, zoom, map]);
-
-  return null;
-}
-
-// TileLayerSelector component
-function TileLayerSelector({ mapType }: { mapType: MapType }) {
-  if (mapType === MapType.OSM) {
-    return (
-      <TileLayer
-        attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-    );
-  } else if (mapType === MapType.SATELLITE) {
-    return (
-      <TileLayer
-        attribution='© <a href="https://www.arcgis.com/">ArcGIS</a>'
-        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        maxZoom={23}
-        maxNativeZoom={19}
-      />
-    );
-  }
-  return null;
-}
-
-interface DroneMapProps {
-  className?: string;
-}
-
-const DroneMap: React.FC<DroneMapProps> = ({ className = '' }) => {
+// The actual map component implementation (client-side only)
+const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
+  // Import Leaflet dynamically only on client-side
+  const [L, setL] = useState<any>(null);
+  const [ReactLeaflet, setReactLeaflet] = useState<any>(null);
+  const [isLeafletLoaded, setIsLeafletLoaded] = useState(false);
+  const [droneIcon, setDroneIcon] = useState<any>(null);
+  const [waypointIcon, setWaypointIcon] = useState<any>(null);
+  
   // Telemetry state
   const [telemetryData, setTelemetryData] = useState({
     latitude: 0,
@@ -117,6 +60,70 @@ const DroneMap: React.FC<DroneMapProps> = ({ className = '' }) => {
   
   const maxPathPoints = 100;
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Load Leaflet libraries
+  useEffect(() => {
+    const initializeLeaflet = async () => {
+      try {
+        // Import required libraries
+        const leaflet = await import('leaflet');
+        const reactLeafletLib = await import('react-leaflet');
+        await import('leaflet/dist/leaflet.css');
+        
+        // Create the icons after loading Leaflet
+        const defaultIcon = leaflet.icon({
+          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowSize: [41, 41]
+        });
+        
+        // Set default icon for all markers
+        leaflet.Marker.prototype.options.icon = defaultIcon;
+        
+        // Create the custom icons
+        const droneIconObj = leaflet.divIcon({
+          className: 'drone-icon',
+          html: `
+            <div class='marker-container'>
+              <div class='center-dot'></div>
+              <div class='ring'></div>
+              <div class='crosshair'></div>
+            </div>
+          `,
+          iconSize: [40, 40],
+          iconAnchor: [20, 20]
+        });
+
+        const waypointIconObj = leaflet.divIcon({
+          className: 'waypoint-icon',
+          html: `
+            <div class='waypoint-container'>
+              <div class='waypoint-dot'></div>
+              <div class='waypoint-ring'></div>
+            </div>
+          `,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15]
+        });
+        
+        // Save all the libraries and icons in state
+        setL(leaflet);
+        setReactLeaflet(reactLeafletLib);
+        setDroneIcon(droneIconObj);
+        setWaypointIcon(waypointIconObj);
+        setIsLeafletLoaded(true);
+      } catch (error) {
+        console.error('Error loading Leaflet:', error);
+        setError('Failed to load map library');
+      }
+    };
+    
+    initializeLeaflet();
+  }, []);
   
   // Memoize the current position
   const dronePosition = useMemo<[number, number]>(() =>
@@ -266,6 +273,56 @@ const DroneMap: React.FC<DroneMapProps> = ({ className = '' }) => {
       document.removeEventListener('keydown', handleEscKey);
     };
   }, [isFullscreen]);
+
+  // If Leaflet isn't loaded yet, show a loading placeholder
+  if (!isLeafletLoaded || !L || !ReactLeaflet || !droneIcon || !waypointIcon) {
+    return (
+      <div className={`relative bg-slate-900/50 text-white rounded-lg border border-gray-800 backdrop-blur-sm shadow-slate-900/50 overflow-hidden ${className} ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'h-[500px]'} flex items-center justify-center`}>
+        <div className="text-gray-400 flex flex-col items-center gap-3">
+          <div className="inline-block animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+          <div>Loading map components...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Extract components from ReactLeaflet
+  const { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } = ReactLeaflet;
+
+  // Create MapUpdater component
+  const MapUpdater = ({ center, zoom }: { center: [number, number]; zoom: number }) => {
+    const map = useMap();
+
+    useEffect(() => {
+      if (center[0] !== 0 && center[1] !== 0) {
+        map.setView(center, zoom);
+      }
+    }, [center, zoom, map]);
+
+    return null;
+  };
+
+  // Create TileLayerSelector component
+  const TileLayerSelector = ({ mapType }: { mapType: MapType }) => {
+    if (mapType === MapType.OSM) {
+      return (
+        <TileLayer
+          attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+      );
+    } else if (mapType === MapType.SATELLITE) {
+      return (
+        <TileLayer
+          attribution='© <a href="https://www.arcgis.com/">ArcGIS</a>'
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          maxZoom={23}
+          maxNativeZoom={19}
+        />
+      );
+    }
+    return null;
+  };
 
   return (
     <div
@@ -591,5 +648,14 @@ const DroneMap: React.FC<DroneMapProps> = ({ className = '' }) => {
     </div>
   );
 };
+
+// Use dynamic import to load the component only on client-side
+const DroneMap = dynamic(
+  () => Promise.resolve(DroneMapClient),
+  { 
+    ssr: false,
+    loading: () => <DroneMapPlaceholder />
+  }
+);
 
 export default DroneMap;

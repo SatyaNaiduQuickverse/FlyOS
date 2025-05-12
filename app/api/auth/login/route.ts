@@ -51,6 +51,8 @@ export async function POST(request: NextRequest) {
     // In a real app, you would use a proper JWT library
     // For demonstration, we'll create a simple token
     const token = `mock-jwt-token-${Date.now()}`;
+    const refreshToken = `mock-refresh-token-${Date.now()}`;
+    const sessionId = `mock-session-${Date.now()}`;
 
     // Remove password before sending user data
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -58,8 +60,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       message: 'Authentication successful',
+      success: true,
       user: safeUser,
-      token
+      token,
+      refreshToken,
+      sessionId
     });
   } catch (error) {
     console.error('Login error:', error);

@@ -15,6 +15,29 @@ services:
     depends_on:
       - drone-db-service
       - realtime-service
+      - auth-service
+    networks:
+      - flyos-network
+    restart: unless-stopped
+
+  # Authentication Service
+  auth-service:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - JWT_SECRET=your_jwt_secret_here
+      - POSTGRES_DB=flyos_db
+      - POSTGRES_USER=flyos_admin
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_HOST=timescaledb
+      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+    depends_on:
+      - timescaledb
     networks:
       - flyos-network
     restart: unless-stopped
@@ -84,11 +107,13 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - redis
+      - auth-service
     environment:
       - NODE_ENV=production
       - PORT=4002
       - REDIS_URL=redis://default:secure_redis_password@redis:6379
       - JWT_SECRET=your_jwt_secret_here
+      - AUTH_SERVICE_URL=http://auth-service:4000
     ports:
       - "4002:4002"
     networks:
