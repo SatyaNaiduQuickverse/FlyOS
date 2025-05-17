@@ -66,7 +66,7 @@ services:
   # Redis for real-time data
   redis:
     image: redis:7
-    command: redis-server --appendonly yes --requirepass secure_redis_password
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
@@ -75,7 +75,7 @@ services:
       - flyos-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -92,7 +92,7 @@ services:
       - NODE_ENV=production
       - PORT=4001
       - DATABASE_URL=postgresql://flyos_admin:secure_password@timescaledb:5432/flyos_db
-      - REDIS_URL=redis://default:secure_redis_password@redis:6379
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=your_jwt_secret_here
     ports:
       - "4001:4001"
@@ -111,7 +111,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4002
-      - REDIS_URL=redis://default:secure_redis_password@redis:6379
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=your_jwt_secret_here
       - AUTH_SERVICE_URL=http://auth-service:4000
     ports:

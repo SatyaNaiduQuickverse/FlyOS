@@ -1,3 +1,4 @@
+// services/mock-data-creator/src/services/simulation.ts
 import { MockDrone } from '../models/mock-drone';
 import { createApiClient } from './api-client';
 import { createRealtimeClient } from './realtime-client';
@@ -158,6 +159,9 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
   // Update metrics display every 5 seconds
   const metricsUpdateInterval = setInterval(async () => {
     try {
+      // Get the real-time latency metrics from the client
+      const realtimeMetrics = realtimeClient.getLatencyMetrics();
+      
       // Get metrics summary from database if available
       if (dbInitialized && testRunId > 0) {
         const metrics = await getMetricsSummary(testRunId);
@@ -178,15 +182,31 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
           },
           {
             operation: 'Real-time',
-            avgLatency: findMetric(metrics, 'realtime', 'drone_state_update') || 0,
-            p95Latency: findMetric(metrics, 'realtime', 'drone_state_update', 'p95_latency') || 0,
+            // Use actual metrics from the realtime client instead of fixed values
+            avgLatency: realtimeMetrics.avg || findMetric(metrics, 'realtime', 'drone_state_update') || 0,
+            p95Latency: realtimeMetrics.p95 || findMetric(metrics, 'realtime', 'drone_state_update', 'p95_latency') || 0,
             errorRate: 0 // Not tracking errors for realtime currently
           }
         ];
+      } else {
+        // If no database, still use real-time metrics from the client
+        latencyData[2] = {
+          operation: 'Real-time',
+          avgLatency: realtimeMetrics.avg || 0,
+          p95Latency: realtimeMetrics.p95 || 0,
+          errorRate: 0
+        };
       }
       
       // Update latency stats display
       updateLatencyStats(latencyData);
+      
+      // Check if realtime client is connected, reconnect if needed
+      if (!realtimeClient.isSocketConnected()) {
+        logger.warn('Realtime client disconnected, attempting to reconnect');
+        addEvent('Realtime client disconnected, attempting to reconnect');
+        realtimeClient.connect();
+      }
     } catch (error) {
       logger.error('Failed to update metrics display:', error);
     }
@@ -248,6 +268,9 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
             // Record event
             await safeRecordEvent('remove_drone', drone.id);
             addEvent(`Removed drone ${drone.id} (scaling down)`);
+            
+            // Unsubscribe from removed drone
+            realtimeClient.unsubscribeFromDrone(drone.id);
           }
           
           // Check if we've reached min
@@ -267,13 +290,13 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
       // Update and send telemetry for each drone
       for (const drone of drones) {
         try {
-          // Update drone state
+          // Update drone state with current timestamp to ensure accurate latency tracking
           const telemetry = drone.update();
           
           // Send telemetry to API
           await apiClient.storeTelemetry(drone.id, telemetry);
           
-          // Subscribe to drone in realtime service if needed
+          // Ensure drone is subscribed in realtime service
           realtimeClient.subscribeToDrone(drone.id);
           
           // Count operation

@@ -1,3 +1,4 @@
+// services/drone-db-service/src/redis.ts
 import Redis from 'ioredis';
 import { logger } from './utils/logger';
 
@@ -14,8 +15,21 @@ const initRedis = async () => {
       throw new Error('REDIS_URL environment variable is not set');
     }
     
-    redisClient = new Redis(redisUrl);
-    redisPubSub = new Redis(redisUrl);
+    redisClient = new Redis(redisUrl, {
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 5
+    });
+    
+    redisPubSub = new Redis(redisUrl, {
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 5
+    });
     
     // Test Redis connection
     await redisClient.ping();
@@ -34,10 +48,19 @@ const initRedis = async () => {
 // Store drone telemetry in Redis (for real-time access)
 const storeDroneState = async (droneId: string, telemetry: any) => {
   try {
+    // Add processing timestamp to track latency
+    const redisTimestamp = Date.now();
+    const enhancedTelemetry = {
+      ...telemetry,
+      _meta: {
+        redisTimestamp
+      }
+    };
+    
     // Store with 5 minute expiry
     await redisClient.set(
       `drone:${droneId}:state`,
-      JSON.stringify(telemetry),
+      JSON.stringify(enhancedTelemetry),
       'EX',
       300
     );
@@ -45,7 +68,7 @@ const storeDroneState = async (droneId: string, telemetry: any) => {
     // Publish update for subscribers
     await redisPubSub.publish(
       `drone:${droneId}:updates`,
-      JSON.stringify(telemetry)
+      JSON.stringify(enhancedTelemetry)
     );
     
     return true;

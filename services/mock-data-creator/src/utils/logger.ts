@@ -11,6 +11,7 @@ const logger = winston.createLogger({
   ),
   transports: [
     new winston.transports.Console({
+      level: 'warn', // Only show warnings and errors in console
       format: winston.format.combine(
         winston.format.colorize(),
         winston.format.timestamp({

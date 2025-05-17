@@ -181,22 +181,28 @@ export const updateThroughput = (opsPerSecond: number) => {
   screen.render();
 };
 
-// Add an event to the events list
+// Add an event to the events list - MODIFIED to filter out routine messages
 export const addEvent = (event: string) => {
   if (!screen || !lists.events) return;
   
-  const timestamp = new Date().toLocaleTimeString();
-  (lists.events as any).addItem(`[${timestamp}] ${event}`);
-  
-  // Keep only the last 100 events
-  if ((lists.events as any).items?.length > 100) {
-    (lists.events as any).removeItem(0);
+  // Filter out routine telemetry and subscription messages to reduce output
+  if (!event.includes('Sending telemetry for') && 
+      !event.includes('Subscribing to drone') && 
+      !event.includes('subscribing to drone')) {
+    
+    const timestamp = new Date().toLocaleTimeString();
+    (lists.events as any).addItem(`[${timestamp}] ${event}`);
+    
+    // Keep only the last 30 events (reduced from 100)
+    if ((lists.events as any).items?.length > 30) {
+      (lists.events as any).removeItem(0);
+    }
+    
+    // Scroll to bottom
+    lists.events.scrollTo((lists.events as any).items?.length || 0);
+    
+    screen.render();
   }
-  
-  // Scroll to bottom
-  lists.events.scrollTo((lists.events as any).items?.length || 0);
-  
-  screen.render();
 };
 
 // Clean up the terminal UI

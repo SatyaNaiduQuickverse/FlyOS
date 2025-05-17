@@ -1,3 +1,4 @@
+// services/realtime-service/src/redis.ts
 import Redis from 'ioredis';
 import { logger } from './utils/logger';
 
@@ -14,8 +15,21 @@ const initRedis = async () => {
       throw new Error('REDIS_URL environment variable is not set');
     }
     
-    redisClient = new Redis(redisUrl);
-    redisPubSub = new Redis(redisUrl);
+    redisClient = new Redis(redisUrl, {
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 5
+    });
+    
+    redisPubSub = new Redis(redisUrl, {
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 5
+    });
     
     // Test Redis connection
     await redisClient.ping();
@@ -54,7 +68,17 @@ const subscribeToDroneUpdates = (droneId: string, callback: (data: any) => void)
     if (subscribedChannel === channel) {
       try {
         const data = JSON.parse(message);
-        callback(data);
+        
+        // Add Socket.IO server timestamp for latency tracking
+        const enhancedData = {
+          ...data,
+          _meta: {
+            ...(data._meta || {}),
+            socketServerTimestamp: Date.now()
+          }
+        };
+        
+        callback(enhancedData);
       } catch (error) {
         logger.error(`Error parsing message from ${channel}:`, error);
       }

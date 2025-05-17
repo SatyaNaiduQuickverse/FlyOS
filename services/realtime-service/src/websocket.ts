@@ -1,3 +1,4 @@
+// services/realtime-service/src/websocket.ts
 import { Server, Socket } from 'socket.io';
 import { ExtendedError } from 'socket.io/dist/namespace';
 import axios from 'axios';
@@ -52,6 +53,10 @@ export const setupWebSocketServer = (io: Server) => {
       try {
         // Check if already subscribed
         if (authenticatedSocket.droneSubscriptions.has(droneId)) {
+          authenticatedSocket.emit('subscription_status', { 
+            droneId, 
+            status: 'already_subscribed' 
+          });
           return;
         }
         
@@ -60,12 +65,29 @@ export const setupWebSocketServer = (io: Server) => {
         // Get initial state
         const currentState = await getDroneState(droneId);
         if (currentState) {
-          authenticatedSocket.emit('drone_state', { droneId, data: currentState });
+          // Add a socketServerTimestamp for initial state as well
+          const enhancedState = {
+            ...currentState,
+            _meta: {
+              ...(currentState._meta || {}),
+              socketServerTimestamp: Date.now()
+            }
+          };
+          
+          authenticatedSocket.emit('drone_state', { 
+            droneId, 
+            data: enhancedState,
+            type: 'initial'
+          });
         }
         
         // Subscribe to updates
         const unsubscribe = subscribeToDroneUpdates(droneId, (data) => {
-          authenticatedSocket.emit('drone_state', { droneId, data });
+          authenticatedSocket.emit('drone_state', { 
+            droneId, 
+            data,
+            type: 'update'
+          });
         });
         
         // Store unsubscribe function
@@ -74,12 +96,14 @@ export const setupWebSocketServer = (io: Server) => {
         // Confirm subscription
         authenticatedSocket.emit('subscription_status', { 
           droneId, 
-          status: 'subscribed' 
+          status: 'subscribed',
+          timestamp: Date.now() // Add timestamp for subscription confirmation
         });
       } catch (error) {
         logger.error(`Error subscribing to drone ${droneId}:`, error);
         authenticatedSocket.emit('error', { 
-          message: 'Failed to subscribe to drone updates'
+          message: 'Failed to subscribe to drone updates',
+          droneId
         });
       }
     });
@@ -95,14 +119,34 @@ export const setupWebSocketServer = (io: Server) => {
           
           authenticatedSocket.emit('subscription_status', { 
             droneId, 
-            status: 'unsubscribed' 
+            status: 'unsubscribed',
+            timestamp: Date.now()
           });
           
           logger.debug(`Client ${authenticatedSocket.id} unsubscribed from drone ${droneId}`);
+        } else {
+          authenticatedSocket.emit('subscription_status', { 
+            droneId, 
+            status: 'not_subscribed',
+            timestamp: Date.now()
+          });
         }
       } catch (error) {
         logger.error(`Error unsubscribing from drone ${droneId}:`, error);
+        authenticatedSocket.emit('error', { 
+          message: 'Failed to unsubscribe from drone updates',
+          droneId
+        });
       }
+    });
+    
+    // Handle ping for latency measurement
+    authenticatedSocket.on('ping', (data) => {
+      // Echo back with server timestamp
+      authenticatedSocket.emit('pong', {
+        clientSentTime: data.timestamp,
+        serverTime: Date.now()
+      });
     });
     
     // Handle disconnect
