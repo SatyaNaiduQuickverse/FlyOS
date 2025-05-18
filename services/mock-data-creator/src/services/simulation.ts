@@ -2,6 +2,7 @@
 import { MockDrone } from '../models/mock-drone';
 import { createApiClient } from './api-client';
 import { createRealtimeClient } from './realtime-client';
+import { createRedisClient } from './redis-client';
 import { startTestRun, recordEvent, endTestRun, getMetricsSummary, recordMetric } from '../database/init';
 import { 
   initTerminalUI, 
@@ -26,6 +27,13 @@ interface SimulationConfig {
   scaleIntervalMinutes: number;
 }
 
+// Global type declaration for window.addEvent
+declare global {
+  interface Window {
+    addEvent?: (message: string) => void;
+  }
+}
+
 // Start the simulation
 export const startSimulation = async (config: SimulationConfig, dbInitialized: boolean = false) => {
   // Validate configuration
@@ -41,6 +49,11 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
   addEvent(`Starting simulation with ${config.droneCount} drones`);
   addEvent(`Telemetry interval: ${config.telemetryIntervalMs}ms`);
   updateDroneStatus(0, config.droneCount);
+  
+  // Make addEvent available globally for other modules
+  if (typeof window !== 'undefined') {
+    window.addEvent = addEvent;
+  }
   
   // Start a new test run in the database
   let testRunId = 0;
@@ -106,7 +119,31 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
   
   // Initialize realtime client with safe record metric function
   const realtimeClient = createRealtimeClient(config.realtimeUrl, config.jwtToken, testRunId, safeRecordMetric);
+  
+  // Initialize the direct Redis client for reliable metrics
+  const redisClient = createRedisClient(safeRecordMetric);
+  
+  // Connect to realtime service and Redis
   realtimeClient.connect();
+  await redisClient.connect();
+  
+  // Initial connection messages
+  if (redisClient.isConnected()) {
+    addEvent('Connected directly to Redis for real-time metrics');
+  }
+  
+  // Add a periodic reconnection attempt every 30 seconds
+  const reconnectInterval = setInterval(() => {
+    if (!realtimeClient.isSocketConnected()) {
+      // Silently attempt to reconnect without logging
+      realtimeClient.connect();
+    }
+    
+    if (!redisClient.isConnected()) {
+      // Try to reconnect to Redis if disconnected
+      redisClient.connect();
+    }
+  }, 30000);
   
   // Create drones
   const drones: MockDrone[] = [];
@@ -156,11 +193,15 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
     { operation: 'Real-time', avgLatency: 0, p95Latency: 0, errorRate: 0 }
   ];
   
+  // Variable to track last reconnection log time
+  let lastReconnectLogTime = 0;
+  
   // Update metrics display every 5 seconds
   const metricsUpdateInterval = setInterval(async () => {
     try {
-      // Get the real-time latency metrics from the client
+      // Get metrics from both realtime client and Redis
       const realtimeMetrics = realtimeClient.getLatencyMetrics();
+      const redisMetrics = redisClient.getLatencyMetrics();
       
       // Get metrics summary from database if available
       if (dbInitialized && testRunId > 0) {
@@ -182,18 +223,22 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
           },
           {
             operation: 'Real-time',
-            // Use actual metrics from the realtime client instead of fixed values
-            avgLatency: realtimeMetrics.avg || findMetric(metrics, 'realtime', 'drone_state_update') || 0,
-            p95Latency: realtimeMetrics.p95 || findMetric(metrics, 'realtime', 'drone_state_update', 'p95_latency') || 0,
-            errorRate: 0 // Not tracking errors for realtime currently
+            // If Redis is connected, use its metrics (real), otherwise fall back to Socket.IO
+            avgLatency: redisClient.isConnected() ? redisMetrics.avg : 
+                      (realtimeClient.isSocketConnected() ? realtimeMetrics.avg : 0),
+            p95Latency: redisClient.isConnected() ? redisMetrics.p95 : 
+                       (realtimeClient.isSocketConnected() ? realtimeMetrics.p95 : 0),
+            errorRate: 0
           }
         ];
       } else {
-        // If no database, still use real-time metrics from the client
+        // If no database, still use real-time metrics
         latencyData[2] = {
           operation: 'Real-time',
-          avgLatency: realtimeMetrics.avg || 0,
-          p95Latency: realtimeMetrics.p95 || 0,
+          avgLatency: redisClient.isConnected() ? redisMetrics.avg : 
+                    (realtimeClient.isSocketConnected() ? realtimeMetrics.avg : 0),
+          p95Latency: redisClient.isConnected() ? redisMetrics.p95 : 
+                     (realtimeClient.isSocketConnected() ? realtimeMetrics.p95 : 0),
           errorRate: 0
         };
       }
@@ -201,11 +246,15 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
       // Update latency stats display
       updateLatencyStats(latencyData);
       
-      // Check if realtime client is connected, reconnect if needed
-      if (!realtimeClient.isSocketConnected()) {
-        logger.warn('Realtime client disconnected, attempting to reconnect');
-        addEvent('Realtime client disconnected, attempting to reconnect');
-        realtimeClient.connect();
+      // Check realtime connection status - only log disconnected message if Redis also fails
+      if (!realtimeClient.isSocketConnected() && !redisClient.isConnected()) {
+        // Only log reconnection attempt once per minute
+        const now = Date.now();
+        
+        if (now - lastReconnectLogTime > 60000) {
+          addEvent('All real-time connections failed, attempting to reconnect');
+          lastReconnectLogTime = now;
+        }
       }
     } catch (error) {
       logger.error('Failed to update metrics display:', error);
@@ -337,9 +386,11 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
     clearInterval(opsCounterInterval);
     clearInterval(metricsUpdateInterval);
     clearInterval(runtimeInterval);
+    clearInterval(reconnectInterval); // Clear the reconnect interval
     
-    // Disconnect realtime client
+    // Disconnect clients
     realtimeClient.disconnect();
+    redisClient.disconnect();
     
     // Record end of test run
     if (dbInitialized && testRunId > 0) {

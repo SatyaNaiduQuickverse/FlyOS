@@ -90,7 +90,7 @@ export class MockDrone {
     };
     
     // Additional data
-    this.latency = 15 + Math.random() * 10;
+    this.latency = 0; // Initialize to 0, will be measured and updated dynamically
     this.teensyConnected = true;
     this.latchStatus = 'CLOSED';
     
@@ -138,8 +138,8 @@ export class MockDrone {
     this.percentage = Math.max(0, this.percentage);
     this.voltage = Math.max(9, this.voltage);
     
-    // Fluctuate latency
-    this.latency = 15 + Math.random() * 10;
+    // Remove static latency value - will be measured from actual system performance
+    // Do not set this.latency here
     
     // Occasionally change satellites
     if (Math.random() < 0.05) {
@@ -190,7 +190,7 @@ export class MockDrone {
       
       // Additional data
       latency: this.latency,
-      teensy_connected: this.teensyConnected,  // Changed from connected to teensy_connected
+      teensy_connected: this.teensyConnected,
       latch_status: this.latchStatus,
       
       // Timestamp

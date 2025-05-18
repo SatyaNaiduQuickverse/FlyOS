@@ -70,13 +70,17 @@ const subscribeToDroneUpdates = (droneId: string, callback: (data: any) => void)
         const data = JSON.parse(message);
         
         // Add Socket.IO server timestamp for latency tracking
+        const timestamp = Date.now();
         const enhancedData = {
           ...data,
           _meta: {
             ...(data._meta || {}),
-            socketServerTimestamp: Date.now()
+            socketServerTimestamp: timestamp
           }
         };
+        
+        // Log timestamp data for debugging
+        logger.debug(`Redis message for ${droneId}: originalTimestamp=${data.timestamp}, redisTimestamp=${data._meta?.redisTimestamp}, socketServerTimestamp=${timestamp}`);
         
         callback(enhancedData);
       } catch (error) {

@@ -55,7 +55,8 @@ export const setupWebSocketServer = (io: Server) => {
         if (authenticatedSocket.droneSubscriptions.has(droneId)) {
           authenticatedSocket.emit('subscription_status', { 
             droneId, 
-            status: 'already_subscribed' 
+            status: 'already_subscribed',
+            timestamp: Date.now()
           });
           return;
         }
@@ -66,28 +67,36 @@ export const setupWebSocketServer = (io: Server) => {
         const currentState = await getDroneState(droneId);
         if (currentState) {
           // Add a socketServerTimestamp for initial state as well
+          const timestamp = Date.now();
           const enhancedState = {
             ...currentState,
             _meta: {
               ...(currentState._meta || {}),
-              socketServerTimestamp: Date.now()
+              socketServerTimestamp: timestamp
             }
           };
           
           authenticatedSocket.emit('drone_state', { 
             droneId, 
             data: enhancedState,
-            type: 'initial'
+            type: 'initial',
+            timestamp: timestamp
           });
+          
+          logger.debug(`Emitted initial state for ${droneId} with timestamp ${timestamp}`);
         }
         
         // Subscribe to updates
         const unsubscribe = subscribeToDroneUpdates(droneId, (data) => {
+          const timestamp = Date.now();
           authenticatedSocket.emit('drone_state', { 
             droneId, 
             data,
-            type: 'update'
+            type: 'update',
+            timestamp: timestamp
           });
+          
+          logger.debug(`Emitted update for ${droneId} with timestamp ${timestamp}`);
         });
         
         // Store unsubscribe function
@@ -143,10 +152,13 @@ export const setupWebSocketServer = (io: Server) => {
     // Handle ping for latency measurement
     authenticatedSocket.on('ping', (data) => {
       // Echo back with server timestamp
+      const serverTime = Date.now();
       authenticatedSocket.emit('pong', {
         clientSentTime: data.timestamp,
-        serverTime: Date.now()
+        serverTime: serverTime
       });
+      
+      logger.debug(`Received ping from ${authenticatedSocket.id}, sent pong with serverTime=${serverTime}`);
     });
     
     // Handle disconnect
