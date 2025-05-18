@@ -1,3 +1,9 @@
+// services/realtime-service/src/app.ts
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
+
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -44,6 +50,12 @@ const startServer = async () => {
     
     server.listen(PORT, () => {
       logger.info(`Real-time service running on port ${PORT}`);
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      
+      // Log configuration for debugging
+      logger.info(`Testing mode: ${process.env.TESTING_MODE === 'true' ? 'Enabled' : 'Disabled'}`);
+      logger.info(`Auth service URL: ${process.env.AUTH_SERVICE_URL || 'http://localhost:4000'}`);
+      logger.info(`Fallback verification: ${process.env.ALLOW_FALLBACK_VERIFICATION === 'true' ? 'Enabled' : 'Disabled'}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
