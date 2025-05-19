@@ -1,3 +1,4 @@
+// services/mock-data-creator/src/utils/terminal-ui.ts
 import blessed from 'blessed';
 import { logger } from './logger';
 
@@ -156,8 +157,8 @@ export const updateDroneStatus = (activeDrones: number, targetDrones: number) =>
 // Update latency statistics
 export const updateLatencyStats = (stats: {
   operation: string;
-  avgLatency: number;
-  p95Latency: number;
+  avgLatency: number | string;
+  p95Latency: number | string;
   errorRate: number;
 }[]) => {
   if (!screen || !boxes.latencyStats) return;
@@ -166,7 +167,16 @@ export const updateLatencyStats = (stats: {
   content += ' ───────────────────────────────────────────────────────\n';
   
   stats.forEach(stat => {
-    content += ` ${stat.operation.padEnd(14)} ${stat.avgLatency.toFixed(1).padStart(8)} ms     ${stat.p95Latency.toFixed(1).padStart(8)} ms     ${stat.errorRate.toFixed(2).padStart(5)}%\n`;
+    // Handle "N/A" values properly
+    const avgDisplay = typeof stat.avgLatency === 'number' 
+      ? stat.avgLatency.toFixed(1).padStart(8) + ' ms' 
+      : String(stat.avgLatency).padStart(11);
+    
+    const p95Display = typeof stat.p95Latency === 'number' 
+      ? stat.p95Latency.toFixed(1).padStart(8) + ' ms' 
+      : String(stat.p95Latency).padStart(11);
+    
+    content += ` ${stat.operation.padEnd(14)} ${avgDisplay}     ${p95Display}     ${stat.errorRate.toFixed(2).padStart(5)}%\n`;
   });
   
   boxes.latencyStats.setContent(content);

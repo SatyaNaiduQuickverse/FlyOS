@@ -27,6 +27,14 @@ interface SimulationConfig {
   scaleIntervalMinutes: number;
 }
 
+// Define a type for the latency data
+interface LatencyDataItem {
+  operation: string;
+  avgLatency: number | string;
+  p95Latency: number | string;
+  errorRate: number;
+}
+
 // Global type declaration for window.addEvent
 declare global {
   interface Window {
@@ -187,7 +195,7 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
   }, 1000);
   
   // Variables for metrics display
-  let latencyData = [
+  let latencyData: LatencyDataItem[] = [
     { operation: 'Write', avgLatency: 0, p95Latency: 0, errorRate: 0 },
     { operation: 'Read', avgLatency: 0, p95Latency: 0, errorRate: 0 },
     { operation: 'Real-time', avgLatency: 0, p95Latency: 0, errorRate: 0 }
@@ -223,11 +231,17 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
           },
           {
             operation: 'Real-time',
-            // If Redis is connected, use its metrics (real), otherwise fall back to Socket.IO
-            avgLatency: redisClient.isConnected() ? redisMetrics.avg : 
-                      (realtimeClient.isSocketConnected() ? realtimeMetrics.avg : 0),
-            p95Latency: redisClient.isConnected() ? redisMetrics.p95 : 
-                       (realtimeClient.isSocketConnected() ? realtimeMetrics.p95 : 0),
+            // Use "N/A" when no data is available
+            avgLatency: redisClient.isConnected() ? 
+                      (redisMetrics.avg !== null ? redisMetrics.avg : "N/A") : 
+                      (realtimeClient.isSocketConnected() ? 
+                        (realtimeMetrics.avg !== null ? realtimeMetrics.avg : "N/A") : 
+                        "N/A"),
+            p95Latency: redisClient.isConnected() ? 
+                       (redisMetrics.p95 !== null ? redisMetrics.p95 : "N/A") : 
+                       (realtimeClient.isSocketConnected() ? 
+                         (realtimeMetrics.p95 !== null ? realtimeMetrics.p95 : "N/A") : 
+                         "N/A"),
             errorRate: 0
           }
         ];
@@ -235,10 +249,16 @@ export const startSimulation = async (config: SimulationConfig, dbInitialized: b
         // If no database, still use real-time metrics
         latencyData[2] = {
           operation: 'Real-time',
-          avgLatency: redisClient.isConnected() ? redisMetrics.avg : 
-                    (realtimeClient.isSocketConnected() ? realtimeMetrics.avg : 0),
-          p95Latency: redisClient.isConnected() ? redisMetrics.p95 : 
-                     (realtimeClient.isSocketConnected() ? realtimeMetrics.p95 : 0),
+          avgLatency: redisClient.isConnected() ? 
+                    (redisMetrics.avg !== null ? redisMetrics.avg : "N/A") : 
+                    (realtimeClient.isSocketConnected() ? 
+                      (realtimeMetrics.avg !== null ? realtimeMetrics.avg : "N/A") : 
+                      "N/A"),
+          p95Latency: redisClient.isConnected() ? 
+                     (redisMetrics.p95 !== null ? redisMetrics.p95 : "N/A") : 
+                     (realtimeClient.isSocketConnected() ? 
+                       (realtimeMetrics.p95 !== null ? realtimeMetrics.p95 : "N/A") : 
+                       "N/A"),
           errorRate: 0
         };
       }

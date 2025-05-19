@@ -1,3 +1,4 @@
+// services/mock-data-creator/src/services/redis-client.ts
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 
@@ -8,7 +9,10 @@ export const createRedisClient = (recordMetricFn?: Function) => {
   let isConnected = false;
   
   const calculateLatencyMetrics = () => {
-    if (latencyBuffer.length === 0) return { avg: 0, p95: 0 };
+    if (latencyBuffer.length === 0) {
+      // Return null values instead of zeros when no data is available
+      return { avg: null, p95: null };
+    }
     
     const avg = latencyBuffer.reduce((sum, val) => sum + val, 0) / latencyBuffer.length;
     

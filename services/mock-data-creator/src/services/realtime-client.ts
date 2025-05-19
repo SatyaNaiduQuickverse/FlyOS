@@ -16,10 +16,10 @@ const createRealtimeClient = (realtimeUrl: string, jwtToken: string, testRunId: 
   // Calculate metrics from the latency buffer
   const calculateLatencyMetrics = () => {
     if (latencyBuffer.length === 0) {
-      // Return random latency values (between 20-80ms) when buffer is empty
+      // Return null values instead of random values when no data is available
       return { 
-        avg: 20 + Math.random() * 60, 
-        p95: 30 + Math.random() * 50 
+        avg: null, 
+        p95: null 
       };
     }
     
