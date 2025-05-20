@@ -1,13 +1,13 @@
-// components/DroneControl/DroneControlHub.tsx
+// components/DroneControlHub.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   Plane, Battery, Signal, MapPin, Clock, 
   ArrowUpCircle, AlertTriangle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import DroneLocationMap from '../DroneLocationMap';
+import DroneLocationMap from './DroneLocationMap';
 import axios from 'axios';
-import { useAuth } from '../../lib/auth';
+import { useAuth } from '../lib/auth';
 
 // Define the drone interface
 interface DroneData {

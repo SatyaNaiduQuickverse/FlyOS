@@ -73,13 +73,29 @@ api.interceptors.response.use(
       
       try {
         // Try to refresh token
-        const refreshResponse = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
+        console.log("Attempting to refresh token...");
+        const refreshToken = getLocalStorageItem('flyos_refresh_token');
         
-        // Check for token in response (handle both patterns)
+        if (!refreshToken) {
+          console.error("No refresh token available");
+          throw new Error("No refresh token available");
+        }
+        
+        const refreshResponse = await axios.post<ApiResponse<{ token: string }>>('/api/auth/refresh', 
+          { refreshToken },
+          { 
+            headers: { 
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        // Check for token in response
         const newToken = refreshResponse.data.token || refreshResponse.data.data?.token;
         
         if (refreshResponse.data.success && newToken) {
-          // Store new token in localStorage for backward compatibility
+          console.log("Token refreshed successfully");
+          // Store new token in localStorage
           setLocalStorageItem('flyos_token', newToken);
           
           // Update header and retry original request
@@ -88,6 +104,9 @@ api.interceptors.response.use(
           }
           
           return api(originalRequest);
+        } else {
+          console.error("Token refresh failed: No new token received");
+          throw new Error("Token refresh failed");
         }
       } catch (refreshError) {
         // Failed to refresh token
@@ -97,6 +116,7 @@ api.interceptors.response.use(
         if (isBrowser) {
           // Check if we're already on the login page to avoid redirect loops
           if (!window.location.pathname.includes('/auth/login')) {
+            console.log("Redirecting to login page");
             // Keep current URL to redirect back after login
             const currentPath = window.location.pathname + window.location.search;
             setLocalStorageItem('flyos_redirect_after_login', currentPath);
@@ -127,6 +147,7 @@ export const authApi = {
       // Store token in localStorage for backward compatibility
       if (isBrowser) {
         setLocalStorageItem('flyos_token', response.data.token);
+        setLocalStorageItem('flyos_refresh_token', response.data.refreshToken);
         setLocalStorageItem('flyos_user', JSON.stringify(response.data.user));
         
         // Store session ID for logout tracking
@@ -160,7 +181,12 @@ export const authApi = {
    */
   refreshToken: async (): Promise<string> => {
     try {
-      const response = await api.post<ApiResponse<{ token: string }>>('/auth/refresh');
+      const refreshToken = getLocalStorageItem('flyos_refresh_token');
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
+      }
+      
+      const response = await api.post<ApiResponse<{ token: string }>>('/auth/refresh', { refreshToken });
       
       // Get token from response (handle both patterns)
       const newToken = response.data.token || response.data.data?.token;
@@ -190,6 +216,7 @@ export const authApi = {
       // Clear local storage
       if (isBrowser) {
         removeLocalStorageItem('flyos_token');
+        removeLocalStorageItem('flyos_refresh_token');
         removeLocalStorageItem('flyos_user');
         removeLocalStorageItem('flyos_session_id');
       }
@@ -199,6 +226,7 @@ export const authApi = {
       // Still clear local storage even if API call fails
       if (isBrowser) {
         removeLocalStorageItem('flyos_token');
+        removeLocalStorageItem('flyos_refresh_token');
         removeLocalStorageItem('flyos_user');
         removeLocalStorageItem('flyos_session_id');
       }

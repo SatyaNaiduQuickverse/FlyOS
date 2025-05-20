@@ -145,39 +145,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(refreshInterval);
   }, [user]);
 
-  /**
-   * Login function
-   */
-  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
-    setLoading(true);
-    setError(null);
+/**
+ * Login function
+ */
+const login = useCallback(async (username: string, password: string): Promise<boolean> => {
+  setLoading(true);
+  setError(null);
+  
+  try {
+    // Call login API
+    const response = await authApi.login(username, password);
     
-    try {
-      // Call login API
-      const response = await authApi.login(username, password);
-      
-      // Set user in state
-      setUser(response.user);
-      
-      // Check for redirect URL
-      const redirectUrl = localStorage.getItem('flyos_redirect_after_login');
-      if (redirectUrl) {
-        localStorage.removeItem('flyos_redirect_after_login');
-        router.push(redirectUrl);
-      } else {
-        // Redirect to appropriate dashboard based on role
-        router.push(ROLE_HOME_ROUTES[response.user.role as keyof typeof ROLE_HOME_ROUTES]);
-      }
-      
-      return true;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
-      setError(errorMessage);
-      return false;
-    } finally {
-      setLoading(false);
+    // Set user in state
+    setUser(response.user);
+    
+    // Store tokens (handled in authApi.login, but double check here)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('flyos_token', response.token);
+      localStorage.setItem('flyos_refresh_token', response.refreshToken);
+      localStorage.setItem('flyos_user', JSON.stringify(response.user));
+      localStorage.setItem('flyos_session_id', response.sessionId);
     }
-  }, [router]);
+    
+    // Check for redirect URL
+    const redirectUrl = localStorage.getItem('flyos_redirect_after_login');
+    if (redirectUrl) {
+      localStorage.removeItem('flyos_redirect_after_login');
+      router.push(redirectUrl);
+    } else {
+      // Redirect to appropriate dashboard based on role
+      router.push(ROLE_HOME_ROUTES[response.user.role as keyof typeof ROLE_HOME_ROUTES]);
+    }
+    
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
+    setError(errorMessage);
+    return false;
+  } finally {
+    setLoading(false);
+  }
+}, [router]);
 
   /**
    * Logout function
