@@ -12,7 +12,13 @@ export const isBrowser = typeof window !== 'undefined';
  */
 export const getLocalStorageItem = (key: string, defaultValue: string | null = null): string | null => {
   if (!isBrowser) return defaultValue;
-  return localStorage.getItem(key) || defaultValue;
+  
+  try {
+    return localStorage.getItem(key) || defaultValue;
+  } catch (error) {
+    console.error(`Error reading ${key} from localStorage:`, error);
+    return defaultValue;
+  }
 };
 
 /**
@@ -22,7 +28,12 @@ export const getLocalStorageItem = (key: string, defaultValue: string | null = n
  */
 export const setLocalStorageItem = (key: string, value: string): void => {
   if (!isBrowser) return;
-  localStorage.setItem(key, value);
+  
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    console.error(`Error setting ${key} in localStorage:`, error);
+  }
 };
 
 /**
@@ -31,5 +42,43 @@ export const setLocalStorageItem = (key: string, value: string): void => {
  */
 export const removeLocalStorageItem = (key: string): void => {
   if (!isBrowser) return;
-  localStorage.removeItem(key);
+  
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.error(`Error removing ${key} from localStorage:`, error);
+  }
+};
+
+/**
+ * Get all localStorage keys
+ * @returns Array of localStorage keys
+ */
+export const getLocalStorageKeys = (): string[] => {
+  if (!isBrowser) return [];
+  
+  try {
+    return Object.keys(localStorage);
+  } catch (error) {
+    console.error('Error getting localStorage keys:', error);
+    return [];
+  }
+};
+
+/**
+ * Check if localStorage is available and working
+ * @returns true if localStorage is available, false otherwise
+ */
+export const isLocalStorageAvailable = (): boolean => {
+  if (!isBrowser) return false;
+  
+  try {
+    const testKey = '__test_key__';
+    localStorage.setItem(testKey, testKey);
+    const result = localStorage.getItem(testKey) === testKey;
+    localStorage.removeItem(testKey);
+    return result;
+  } catch (error) {
+    return false;
+  }
 };

@@ -162,84 +162,113 @@ app.post('/auth/login', async (req, res) => {
  */
 app.post('/auth/refresh', async (req, res) => {
   try {
-    // Get refresh token from cookie
-    const refreshToken = req.cookies.refresh_token;
-
+    console.log('Refresh token request received');
+    // Get refresh token from request body or cookie
+    const refreshTokenFromBody = req.body.refreshToken;
+    const refreshTokenFromCookie = req.cookies.refresh_token;
+    
+    const refreshToken = refreshTokenFromBody || refreshTokenFromCookie;
+    
     if (!refreshToken) {
+      console.log('No refresh token provided');
       return res.status(401).json({
         success: false,
         message: 'Refresh token required'
       });
     }
-
+    
+    console.log('Verifying refresh token');
+    
     // Verify refresh token
-    const decoded = jwt.verify(refreshToken, JWT_SECRET);
-
-    // Get user from database
-    const user = await User.findByPk(decoded.id);
-
-    if (!user || !user.active) {
+    try {
+      const decoded = jwt.verify(refreshToken, JWT_SECRET);
+      console.log('Refresh token verified successfully');
+      
+      // Get user from database
+      const user = await User.findByPk(decoded.id);
+      
+      if (!user || !user.active) {
+        console.log('User not found or inactive');
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid refresh token'
+        });
+      }
+      
+      // Check if token version matches (for token revocation)
+      if (decoded.tokenVersion !== user.tokenVersion) {
+        console.log('Token version mismatch - token has been revoked');
+        return res.status(401).json({
+          success: false,
+          message: 'Token has been revoked'
+        });
+      }
+      
+      // Create payload for new tokens
+      const payload = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        regionId: user.regionId || undefined,
+        tokenVersion: user.tokenVersion
+      };
+      
+      // Generate new tokens
+      const newAccessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+      const newRefreshToken = jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
+      
+      console.log('New tokens generated successfully');
+      
+      // Set new tokens in cookies
+      res.cookie('access_token', newAccessToken, {
+        httpOnly: true,
+        secure: COOKIE_SECURE,
+        sameSite: 'strict',
+        maxAge: 60 * 60 * 1000 // 1 hour
+      });
+      
+      res.cookie('refresh_token', newRefreshToken, {
+        httpOnly: true,
+        secure: COOKIE_SECURE,
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+      
+      // Return the response with new tokens
+      res.status(200).json({
+        success: true,
+        message: 'Token refreshed successfully',
+        token: newAccessToken,
+        refreshToken: newRefreshToken,
+        // Include user data for convenience
+        user: User.sanitizeUser(user)
+      });
+    } catch (jwtError) {
+      console.error('JWT verification error:', jwtError);
+      
+      // Clear cookies on error
+      res.clearCookie('access_token');
+      res.clearCookie('refresh_token');
+      
       return res.status(401).json({
         success: false,
         message: 'Invalid refresh token'
       });
     }
-
-    // Check if token version matches (for token revocation)
-    if (decoded.tokenVersion !== user.tokenVersion) {
-      return res.status(401).json({
-        success: false,
-        message: 'Token has been revoked'
-      });
-    }
-
-    // Create payload for new tokens
-    const payload = {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      regionId: user.regionId || undefined,
-      tokenVersion: user.tokenVersion
-    };
-
-    // Generate new tokens
-    const newAccessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
-    const newRefreshToken = jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
-
-    // Set new tokens in cookies
-    res.cookie('access_token', newAccessToken, {
-      httpOnly: true,
-      secure: COOKIE_SECURE,
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
-    });
-
-    res.cookie('refresh_token', newRefreshToken, {
-      httpOnly: true,
-      secure: COOKIE_SECURE,
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'Token refreshed successfully',
-      token: newAccessToken,
-      refreshToken: newRefreshToken
-    });
   } catch (error) {
     console.error('Token refresh error:', error);
-
+    
     // Clear cookies on error
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
-
-    return res.status(401).json({
+    
+    return res.status(500).json({
       success: false,
-      message: 'Invalid refresh token'
+      message: 'Internal server error'
     });
   }
 });
+
 
 /**
  * Logout endpoint

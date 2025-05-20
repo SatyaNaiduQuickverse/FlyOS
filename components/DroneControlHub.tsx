@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plane, Battery, Signal, MapPin, Clock, 
-  ArrowUpCircle, AlertTriangle
+  ArrowUpCircle, AlertTriangle, RefreshCw 
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import DroneLocationMap from './DroneLocationMap';
@@ -37,66 +37,100 @@ interface DroneData {
 
 const DroneControlHub: React.FC = () => {
   const router = useRouter();
-  const { token } = useAuth(); // Get token from auth context
+  const { token, refreshSession } = useAuth(); // Get token from auth context
   const [drones, setDrones] = useState<DroneData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedDrone, setSelectedDrone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<boolean>(false);
+
+  // Retry handler
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      // Try to refresh the session first
+      await refreshSession();
+      
+      // Then refetch drones
+      await fetchDrones();
+      
+      setError(null);
+    } catch (err) {
+      console.error('Retry failed:', err);
+      setError('Authentication failed. Please log in again.');
+      // Redirect to login after a short delay
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 1500);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   // Fetch drone data from backend
-  useEffect(() => {
-    const fetchDrones = async () => {
-      setLoading(true);
-      try {
-        if (!token) {
-          setError('Authentication required');
-          setLoading(false);
-          return;
-        }
-        
-        // Fetch the list of drones from your backend
-        const response = await axios.get('/api/drones', {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        
-        if (response.data.success) {
-          // Map the response data to your DroneData interface
-          const droneList = response.data.data.map((drone: any) => ({
-            id: drone.id,
-            model: drone.model || 'Unknown',
-            status: drone.status || 'UNKNOWN',
-            // Parse location from coordinates if available
-            location: drone.latitude && drone.longitude 
-              ? `${drone.latitude.toFixed(4)}, ${drone.longitude.toFixed(4)}` 
-              : 'Unknown Location',
-            // Map fields from Redis/TimescaleDB
-            batteryLevel: drone.percentage || 0,
-            signalStrength: drone.connected ? 100 : 0,
-            lastActive: new Date(drone.timestamp || Date.now()).toLocaleString(),
-            mission: drone.flight_mode || 'None',
-            coordinates: {
-              lat: drone.latitude || 0,
-              lng: drone.longitude || 0
-            },
-            // Keep the original fields for reference
-            ...drone
-          }));
-          
-          setDrones(droneList);
-          setError(null);
-        } else {
-          setError(response.data.message || 'Failed to load drones');
-        }
-      } catch (err) {
-        console.error('Error fetching drones:', err);
-        setError('Error connecting to drone database');
-      } finally {
+  const fetchDrones = async () => {
+    setLoading(true);
+    try {
+      if (!token) {
+        setError('Authentication required');
         setLoading(false);
+        return;
       }
-    };
+      
+      console.log('Fetching drones list...');
+      
+      // Fetch the list of drones from your backend
+      const response = await axios.get('/api/drones', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      if (response.data.success) {
+        // Map the response data to your DroneData interface
+        const droneList = response.data.data.map((drone: any) => ({
+          id: drone.id,
+          model: drone.model || 'Unknown',
+          status: drone.status || 'UNKNOWN',
+          // Parse location from coordinates if available
+          location: drone.latitude && drone.longitude 
+            ? `${drone.latitude.toFixed(4)}, ${drone.longitude.toFixed(4)}` 
+            : 'Unknown Location',
+          // Map fields from Redis/TimescaleDB
+          batteryLevel: drone.percentage || 0,
+          signalStrength: drone.connected ? 100 : 0,
+          lastActive: new Date(drone.timestamp || Date.now()).toLocaleString(),
+          mission: drone.flight_mode || 'None',
+          coordinates: {
+            lat: drone.latitude || 0,
+            lng: drone.longitude || 0
+          },
+          // Keep the original fields for reference
+          ...drone
+        }));
+        
+        setDrones(droneList);
+        setError(null);
+        console.log(`Successfully fetched ${droneList.length} drones`);
+      } else {
+        setError(response.data.message || 'Failed to load drones');
+        console.error('API error:', response.data.message);
+      }
+    } catch (err: any) {
+      console.error('Error fetching drones:', err);
+      
+      if (err.response?.status === 401) {
+        setError('Authentication required - Please retry or login again');
+      } else {
+        setError(`Error connecting to drone database: ${err.message}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // Initial fetch and polling setup
+  useEffect(() => {
     fetchDrones();
     
     // Set up polling to refresh drone list every 30 seconds
@@ -168,10 +202,18 @@ const DroneControlHub: React.FC = () => {
 
   return (
     <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
-      <h3 className="text-lg font-light tracking-wider mb-6 flex items-center gap-2 text-blue-300">
-        <Plane className="h-5 w-5" />
-        ACTIVE DRONE CONTROL
-      </h3>
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-lg font-light tracking-wider flex items-center gap-2 text-blue-300">
+          <Plane className="h-5 w-5" />
+          ACTIVE DRONE CONTROL
+        </h3>
+        
+        {!error && !loading && (
+          <div className="text-sm text-gray-400">
+            {drones.length} drone{drones.length !== 1 ? 's' : ''} available
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex justify-center items-center h-64">
@@ -182,12 +224,23 @@ const DroneControlHub: React.FC = () => {
         </div>
       ) : error ? (
         <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-4 text-red-300">
-          <p>{error}</p>
+          <p className="mb-4">{error}</p>
           <button 
-            onClick={() => window.location.reload()}
-            className="mt-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-md transition-colors"
+            onClick={handleRetry}
+            disabled={retrying}
+            className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-md transition-colors flex items-center gap-2"
           >
-            Retry
+            {retrying ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Retrying...</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4" />
+                <span>Retry</span>
+              </>
+            )}
           </button>
         </div>
       ) : drones.length === 0 ? (

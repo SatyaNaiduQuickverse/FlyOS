@@ -50,8 +50,8 @@ api.interceptors.request.use(
     
     return config;
   },
-  (_error) => {
-    return Promise.reject(_error);
+  (error) => {
+    return Promise.reject(error);
   }
 );
 
@@ -92,11 +92,17 @@ api.interceptors.response.use(
         
         // Check for token in response
         const newToken = refreshResponse.data.token || refreshResponse.data.data?.token;
+        const newRefreshToken = refreshResponse.data.refreshToken || refreshResponse.data?.data?.refreshToken;
         
         if (refreshResponse.data.success && newToken) {
           console.log("Token refreshed successfully");
           // Store new token in localStorage
           setLocalStorageItem('flyos_token', newToken);
+          
+          // If there's a new refresh token, store it too
+          if (newRefreshToken) {
+            setLocalStorageItem('flyos_refresh_token', newRefreshToken);
+          }
           
           // Update header and retry original request
           if (originalRequest.headers) {
@@ -120,6 +126,10 @@ api.interceptors.response.use(
             // Keep current URL to redirect back after login
             const currentPath = window.location.pathname + window.location.search;
             setLocalStorageItem('flyos_redirect_after_login', currentPath);
+            
+            // Clear tokens since they're invalid
+            removeLocalStorageItem('flyos_token');
+            removeLocalStorageItem('flyos_refresh_token');
             
             // Redirect to login page
             window.location.href = '/auth/login';
@@ -155,9 +165,9 @@ export const authApi = {
       }
       
       return response.data;
-    } catch (_error) {
-      if (axios.isAxiosError(_error) && _error.response) {
-        throw new Error(_error.response.data.message || 'Authentication failed');
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || 'Authentication failed');
       }
       throw new Error('Authentication service unavailable');
     }
@@ -170,7 +180,7 @@ export const authApi = {
     try {
       const response = await api.get<ApiResponse<{ user: User }>>('/auth/verify');
       return response.data.data?.user as User;
-    } catch (_error) {
+    } catch (error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Invalid authentication session');
     }
@@ -186,18 +196,24 @@ export const authApi = {
         throw new Error('No refresh token available');
       }
       
-      const response = await api.post<ApiResponse<{ token: string }>>('/auth/refresh', { refreshToken });
+      const response = await api.post<ApiResponse<{ token: string; refreshToken?: string }>>('/auth/refresh', { refreshToken });
       
       // Get token from response (handle both patterns)
       const newToken = response.data.token || response.data.data?.token;
+      const newRefreshToken = response.data.refreshToken || response.data.data?.refreshToken;
       
       if (newToken && isBrowser) {
         setLocalStorageItem('flyos_token', newToken);
+        
+        // If server also returned a new refresh token, update it
+        if (newRefreshToken) {
+          setLocalStorageItem('flyos_refresh_token', newRefreshToken);
+        }
       }
       
       return newToken || '';
-    } catch (_error) {
-      // Ignore variable to satisfy ESLint
+    } catch (error) {
+      console.error('Failed to refresh token:', error);
       throw new Error('Failed to refresh token');
     }
   },
@@ -209,9 +225,21 @@ export const authApi = {
     try {
       // Get session ID from local storage if available
       const sessionId = getLocalStorageItem('flyos_session_id');
+      const token = getLocalStorageItem('flyos_token');
       
       // Call logout endpoint
-      await api.post('/auth/logout', { sessionId });
+      if (token) {
+        try {
+          await api.post('/auth/logout', { sessionId }, {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          });
+        } catch (apiError) {
+          console.warn('Logout API call failed:', apiError);
+          // Continue with local logout even if API call fails
+        }
+      }
       
       // Clear local storage
       if (isBrowser) {
@@ -219,6 +247,7 @@ export const authApi = {
         removeLocalStorageItem('flyos_refresh_token');
         removeLocalStorageItem('flyos_user');
         removeLocalStorageItem('flyos_session_id');
+        removeLocalStorageItem('flyos_redirect_after_login');
       }
     } catch (logoutError) {
       console.error('Logout error:', logoutError);
@@ -229,6 +258,7 @@ export const authApi = {
         removeLocalStorageItem('flyos_refresh_token');
         removeLocalStorageItem('flyos_user');
         removeLocalStorageItem('flyos_session_id');
+        removeLocalStorageItem('flyos_redirect_after_login');
       }
     }
   },
@@ -243,7 +273,7 @@ export const authApi = {
       
       const response = await api.get('/login-history', { params });
       return response.data;
-    } catch (_error) {
+    } catch (error) {
       // Ignore variable to satisfy ESLint
       throw new Error('Failed to fetch login history');
     }
