@@ -50,7 +50,8 @@ export const useDroneState = (droneId: string, pollingInterval = 5000) => {
     if (!isBrowser) return;
     
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4002';
-    const token = getLocalStorageItem('token');
+    // CHANGED FROM 'token' to 'flyos_token' to match the rest of the application
+    const token = getLocalStorageItem('flyos_token');
 
     if (!token) {
       setError('Authentication required for real-time updates');

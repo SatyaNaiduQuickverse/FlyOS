@@ -1,10 +1,24 @@
-// lib/auth.tsx
+// ==============================
+// File: lib/auth.tsx (REPLACE ENTIRELY)
+// ==============================
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { User as SupabaseUser } from '@supabase/supabase-js';
+import { supabase } from './supabase';
 import { User, UserRole, PERMISSIONS } from '../types/auth';
-import { authApi } from './api/auth';
+
+// Profile interface for Supabase
+interface Profile {
+  id: string;
+  username: string;
+  role: 'MAIN_HQ' | 'REGIONAL_HQ' | 'OPERATOR';
+  region_id?: string;
+  full_name: string;
+  created_at?: string;
+  updated_at?: string;
+}
 
 // Auth context type definition
 interface AuthContextType {
@@ -12,7 +26,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   error: string | null;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
   refreshSession: () => Promise<void>;
@@ -31,16 +45,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /**
  * Authentication Provider component
- * Manages auth state and provides authentication methods
+ * Now uses Supabase for authentication
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Rename unused variable with underscore prefix
-  const [_sessionChecked, setSessionChecked] = useState(false);
-  const [refreshTimer, setRefreshTimer] = useState<NodeJS.Timeout | null>(null);
   const router = useRouter();
 
   // Clear authentication error
@@ -48,185 +59,180 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
-  // Setup token refresh timer
-  const setupRefreshTimer = useCallback((expiresIn: number = 55 * 60 * 1000) => {
-    // Clear existing timer if any
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-    }
-    
-    // Set new timer to refresh 5 minutes before expiry
-    // Default expiry is 1 hour, refresh after 55 minutes
-    const timer = setTimeout(async () => {
-      console.log('Auto refreshing token...');
-      try {
-        await authApi.refreshToken();
-        console.log('Token refreshed automatically');
-        
-        // Reset timer for next refresh
-        setupRefreshTimer();
-      } catch (error) {
-        console.error('Auto token refresh failed:', error);
-        // Don't logout on refresh failure - let the interceptor handle it
+  // Convert Supabase profile to our User type
+  const convertProfileToUser = (supabaseUser: SupabaseUser, profile: Profile): User => {
+    return {
+      id: profile.id,
+      username: profile.username,
+      role: profile.role as UserRole,
+      regionId: profile.region_id,
+      fullName: profile.full_name,
+      email: supabaseUser.email || '',
+    };
+  };
+
+  // Fetch user profile from Supabase
+  const fetchProfile = async (userId: string): Promise<Profile | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
       }
-    }, expiresIn);
-    
-    setRefreshTimer(timer);
-    return timer;
-  }, [refreshTimer]);
+      
+      return data;
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      return null;
+    }
+  };
 
   // Check for existing session on mount
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // Skip on server side
-        if (typeof window === 'undefined') {
-          setLoading(false);
-          return;
-        }
-
-        // Check for existing token in localStorage
-        const storedToken = localStorage.getItem('flyos_token');
-        const storedUser = localStorage.getItem('flyos_user');
+        // Get initial session
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        // If no token, clear session and exit
-        if (!storedToken) {
+        if (error) {
+          console.error('Error getting session:', error);
           setLoading(false);
-          setSessionChecked(true);
           return;
         }
 
-        // Set token in state
-        setToken(storedToken);
-
-        // Set user from localStorage while we verify the token
-        if (storedUser) {
-          try {
-            setUser(JSON.parse(storedUser));
-          } catch (parseError) {
-            console.error('Failed to parse stored user:', parseError);
-          }
-        }
-
-        // Verify token with backend
-        try {
-          console.log('Verifying existing token...');
-          const userData = await authApi.verifyToken();
+        if (session?.user) {
+          setToken(session.access_token);
           
-          // Update user state with fresh data from server
-          setUser(userData);
-          
-          // Update localStorage with fresh data
-          localStorage.setItem('flyos_user', JSON.stringify(userData));
-          
-          console.log('Session verified successfully');
-          
-          // Setup refresh timer
-          setupRefreshTimer();
-        } catch (verifyError) {
-          console.error('Token verification failed:', verifyError);
-          
-          // Try to refresh the token if verification fails
-          try {
-            console.log('Attempting to refresh token after verification failure');
-            const newToken = await authApi.refreshToken();
-            if (newToken) {
-              // Token refreshed, update state
-              setToken(newToken);
-              
-              // Token refreshed, try to get user data again
-              const userData = await authApi.verifyToken();
-              setUser(userData);
+          // Fetch user profile
+          const profile = await fetchProfile(session.user.id);
+          if (profile) {
+            const userData = convertProfileToUser(session.user, profile);
+            setUser(userData);
+            
+            // Store user data in localStorage for compatibility
+            if (typeof window !== 'undefined') {
               localStorage.setItem('flyos_user', JSON.stringify(userData));
-              console.log('Session refreshed successfully');
-              
-              // Setup refresh timer
-              setupRefreshTimer();
-            } else {
-              throw new Error('Token refresh failed');
+              localStorage.setItem('flyos_token', session.access_token);
             }
-          } catch (refreshError) {
-            // Both verification and refresh failed, clear session
-            console.error('Token refresh failed:', refreshError);
-            localStorage.removeItem('flyos_user');
-            localStorage.removeItem('flyos_token');
-            localStorage.removeItem('flyos_refresh_token');
-            setToken(null);
-            setUser(null);
           }
         }
-      } catch (error) {
-        console.error('Authentication session error:', error);
         
-        // Clear invalid session data
-        localStorage.removeItem('flyos_user');
-        localStorage.removeItem('flyos_token');
-        localStorage.removeItem('flyos_refresh_token');
-        
-        setToken(null);
-        setUser(null);
-      } finally {
         setLoading(false);
-        setSessionChecked(true);
+      } catch (error) {
+        console.error('Authentication check error:', error);
+        setLoading(false);
       }
     };
 
     checkAuth();
-    
-    // Cleanup refresh timer on unmount
-    return () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-    };
-  }, [setupRefreshTimer]);
 
-/**
- * Login function
- */
-const login = useCallback(async (username: string, password: string): Promise<boolean> => {
-  setLoading(true);
-  setError(null);
-  
-  try {
-    // Call login API
-    const response = await authApi.login(username, password);
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state change:', event);
+        
+        if (session?.user) {
+          setToken(session.access_token);
+          
+          // Fetch user profile
+          const profile = await fetchProfile(session.user.id);
+          if (profile) {
+            const userData = convertProfileToUser(session.user, profile);
+            setUser(userData);
+            
+            // Store user data in localStorage for compatibility
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('flyos_user', JSON.stringify(userData));
+              localStorage.setItem('flyos_token', session.access_token);
+            }
+          }
+        } else {
+          setUser(null);
+          setToken(null);
+          
+          // Clear localStorage
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('flyos_user');
+            localStorage.removeItem('flyos_token');
+            localStorage.removeItem('flyos_refresh_token');
+            localStorage.removeItem('flyos_session_id');
+          }
+        }
+        
+        setLoading(false);
+      }
+    );
+
+    return () => subscription?.unsubscribe();
+  }, []);
+
+  /**
+   * Login function - now uses email instead of username
+   */
+  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
     
-    // Set user in state
-    setUser(response.user);
-    setToken(response.token);
-    
-    // Store tokens (handled in authApi.login, but double check here)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('flyos_token', response.token);
-      localStorage.setItem('flyos_refresh_token', response.refreshToken);
-      localStorage.setItem('flyos_user', JSON.stringify(response.user));
-      localStorage.setItem('flyos_session_id', response.sessionId);
+    try {
+      // Sign in with Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) {
+        setError(error.message);
+        return false;
+      }
+      
+      if (data.user && data.session) {
+        setToken(data.session.access_token);
+        
+        // Fetch user profile
+        const profile = await fetchProfile(data.user.id);
+        if (profile) {
+          const userData = convertProfileToUser(data.user, profile);
+          setUser(userData);
+          
+          // Store user data in localStorage for compatibility
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('flyos_user', JSON.stringify(userData));
+            localStorage.setItem('flyos_token', data.session.access_token);
+            // Store refresh token for compatibility (though Supabase handles this)
+            localStorage.setItem('flyos_refresh_token', data.session.refresh_token || '');
+          }
+          
+          // Check for redirect URL
+          const redirectUrl = localStorage.getItem('flyos_redirect_after_login');
+          if (redirectUrl) {
+            localStorage.removeItem('flyos_redirect_after_login');
+            router.push(redirectUrl);
+          } else {
+            // Redirect based on role
+            router.push(ROLE_HOME_ROUTES[userData.role as keyof typeof ROLE_HOME_ROUTES]);
+          }
+          
+          return true;
+        } else {
+          setError('User profile not found');
+          return false;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
+      setError(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
     }
-    
-    // Setup refresh timer
-    setupRefreshTimer();
-    
-    // Check for redirect URL
-    const redirectUrl = localStorage.getItem('flyos_redirect_after_login');
-    if (redirectUrl) {
-      localStorage.removeItem('flyos_redirect_after_login');
-      router.push(redirectUrl);
-    } else {
-      // Redirect to appropriate dashboard based on role
-      router.push(ROLE_HOME_ROUTES[response.user.role as keyof typeof ROLE_HOME_ROUTES]);
-    }
-    
-    return true;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
-    setError(errorMessage);
-    setToken(null);
-    return false;
-  } finally {
-    setLoading(false);
-  }
-}, [router, setupRefreshTimer]);
+  }, [router]);
 
   /**
    * Logout function
@@ -235,18 +241,21 @@ const login = useCallback(async (username: string, password: string): Promise<bo
     setLoading(true);
     
     try {
-      // Clear refresh timer if exists
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        setRefreshTimer(null);
-      }
+      // Sign out from Supabase
+      await supabase.auth.signOut();
       
-      // Call logout API
-      await authApi.logout();
-      
-      // Clear user state
+      // Clear local state
       setUser(null);
       setToken(null);
+      
+      // Clear localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('flyos_user');
+        localStorage.removeItem('flyos_token');
+        localStorage.removeItem('flyos_refresh_token');
+        localStorage.removeItem('flyos_session_id');
+        localStorage.removeItem('flyos_redirect_after_login');
+      }
       
       // Redirect to login page
       router.push('/auth/login');
@@ -260,65 +269,37 @@ const login = useCallback(async (username: string, password: string): Promise<bo
     } finally {
       setLoading(false);
     }
-  }, [router, refreshTimer]);
+  }, [router]);
 
   /**
-   * Refresh session
-   * Verifies current token and refreshes user data
+   * Refresh session - Supabase handles this automatically, but we expose for compatibility
    */
   const refreshSession = useCallback(async (): Promise<void> => {
     try {
-      // Skip if no user
-      if (!user) return;
+      const { data, error } = await supabase.auth.refreshSession();
       
-      // Verify token and get fresh user data
-      try {
-        const userData = await authApi.verifyToken();
-        
-        // Update user state
-        setUser(userData);
+      if (error) {
+        console.error('Session refresh error:', error);
+        await logout();
+        return;
+      }
+      
+      if (data.session?.access_token) {
+        setToken(data.session.access_token);
         
         // Update localStorage
-        localStorage.setItem('flyos_user', JSON.stringify(userData));
-        
-        // Reset refresh timer
-        setupRefreshTimer();
-      } catch (verifyError) {
-        console.error('Session verification failed:', verifyError);
-        
-        // Try to refresh the token if verification fails
-        try {
-          const newToken = await authApi.refreshToken();
-          if (newToken) {
-            // Update token state
-            setToken(newToken);
-            
-            // Token refreshed, try to get user data again
-            const userData = await authApi.verifyToken();
-            setUser(userData);
-            localStorage.setItem('flyos_user', JSON.stringify(userData));
-            console.log('Session refreshed successfully');
-            
-            // Setup refresh timer
-            setupRefreshTimer();
-          } else {
-            // If token is invalid, logout
-            await logout();
-          }
-        } catch (refreshError) {
-          // If token is invalid, logout
-          console.error('Token refresh failed:', refreshError);
-          await logout();
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('flyos_token', data.session.access_token);
         }
       }
     } catch (error) {
       console.error('Session refresh error:', error);
       await logout();
     }
-  }, [user, logout, setupRefreshTimer]);
+  }, [logout]);
 
   /**
-   * Permission check function
+   * Permission check function - unchanged from original
    */
   const hasPermission = useCallback((permission: string): boolean => {
     if (!user) return false;

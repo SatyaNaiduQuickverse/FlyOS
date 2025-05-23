@@ -18,7 +18,8 @@ const apiClient = axios.create({
 // Add authentication interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    const token = getLocalStorageItem('token');
+    // CHANGED FROM 'token' to 'flyos_token' to match the rest of the application
+    const token = getLocalStorageItem('flyos_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
