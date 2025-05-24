@@ -48,6 +48,13 @@ export async function GET(request: NextRequest) {
       );
     }
     
+    if (error.code === 'ECONNREFUSED') {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Backend service unavailable - connection refused' 
+      }, { status: 503 });
+    }
+    
     return NextResponse.json({ 
       success: false, 
       message: 'Internal server error: ' + error.message 

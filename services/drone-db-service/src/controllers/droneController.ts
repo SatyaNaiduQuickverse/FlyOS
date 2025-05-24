@@ -6,7 +6,114 @@ import {
   getCommandHistory
 } from '../services/droneService';
 import { getDroneState } from '../redis';
+import { pool } from '../database';
 import { logger } from '../utils/logger';
+
+// Get all drones (with role-based filtering) - THIS WAS MISSING!
+export const getAllDronesController = async (req: Request, res: Response) => {
+  try {
+    // Check if user is authenticated
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const { role, region_id } = req.user;
+    
+    let whereClause = '';
+    let values: any[] = [];
+    
+    // Apply role-based filtering
+    if (role === 'MAIN_HQ') {
+      // Main HQ can see all drones
+      whereClause = '';
+    } else if (role === 'REGIONAL_HQ') {
+      // Regional HQ can only see drones in their region
+      whereClause = 'WHERE d.region_id = $1';
+      values = [region_id];
+    } else if (role === 'OPERATOR') {
+      // Operators can only see drones assigned to them
+      whereClause = 'WHERE d.operator_id = $1';
+      values = [req.user.id];
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions'
+      });
+    }
+    
+    // Query to get drones from database
+    const query = `
+      SELECT 
+        d.id,
+        d.model,
+        d.status,
+        d.region_id,
+        d.operator_id,
+        d.last_maintenance,
+        d.created_at,
+        d.updated_at,
+        r.name as region_name,
+        u.username as operator_username,
+        u.full_name as operator_name
+      FROM drones d
+      LEFT JOIN regions r ON d.region_id = r.id
+      LEFT JOIN users u ON d.operator_id = u.id
+      ${whereClause}
+      ORDER BY d.status, d.id;
+    `;
+    
+    const result = await pool.query(query, values);
+    const drones = result.rows;
+    
+    // Enhance with real-time state from Redis
+    const enhancedDrones = await Promise.all(
+      drones.map(async (drone) => {
+        try {
+          const realTimeState = await getDroneState(drone.id);
+          return {
+            ...drone,
+            // Add real-time telemetry data
+            latitude: realTimeState?.latitude,
+            longitude: realTimeState?.longitude,
+            altitude: realTimeState?.altitudeRelative,
+            battery_percentage: realTimeState?.percentage,
+            connected: realTimeState?.connected || false,
+            flight_mode: realTimeState?.flight_mode,
+            armed: realTimeState?.armed || false,
+            last_telemetry: realTimeState?._meta?.redisTimestamp ? 
+              new Date(realTimeState._meta.redisTimestamp) : null
+          };
+        } catch (error) {
+          logger.warn(`Failed to get real-time state for drone ${drone.id}:`, error);
+          return {
+            ...drone,
+            connected: false,
+            last_telemetry: null
+          };
+        }
+      })
+    );
+    
+    logger.info(`Retrieved ${enhancedDrones.length} drones for user ${req.user.username} (${role})`);
+    
+    return res.status(200).json({
+      success: true,
+      data: enhancedDrones,
+      count: enhancedDrones.length,
+      user_role: role,
+      user_region: region_id
+    });
+  } catch (error) {
+    logger.error(`Error getting all drones: ${error}`);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
+  }
+};
 
 // Get current drone state from Redis
 export const getDroneStateController = async (req: Request, res: Response) => {

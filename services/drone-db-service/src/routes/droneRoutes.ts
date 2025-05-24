@@ -1,6 +1,7 @@
 // services/drone-db-service/src/routes/droneRoutes.ts
 import express from 'express';
 import { 
+  getAllDronesController,  // NEW - this was missing!
   getDroneStateController, 
   storeTelemetryController, 
   getHistoricalTelemetryController,
@@ -13,6 +14,9 @@ const router = express.Router();
 
 // Apply Supabase authentication to all routes
 router.use(authenticateSupabase);
+
+// Root route to get all drones (THIS WAS THE MISSING ROUTE!)
+router.get('/', getAllDronesController);
 
 // Drone state and telemetry routes
 router.get('/:droneId/state', getDroneStateController);
