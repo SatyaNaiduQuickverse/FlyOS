@@ -88,7 +88,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Database Service (will be updated with Supabase auth later)
+  # Database Service (UPDATED - now using Supabase auth)
   drone-db-service:
     build:
       context: ./services/drone-db-service
@@ -101,19 +101,21 @@ services:
       - PORT=4001
       - DATABASE_URL=postgresql://flyos_admin:secure_password@timescaledb:5432/flyos_db
       - REDIS_URL=redis://redis:6379
-      # Keep old JWT for now, will migrate to Supabase later
-      - JWT_SECRET=your_jwt_secret_here
-      # Add Supabase config for future migration
+      # UPDATED: Now using Supabase for authentication
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
+      # Keep JWT secret for backwards compatibility during migration
+      - JWT_SECRET=your_jwt_secret_here
       - CORS_ORIGIN=http://localhost:3001,http://frontend:3000,http://3.111.215.70:3001
+      # Add logging for debugging
+      - LOG_LEVEL=debug
     ports:
       - "4001:4001"
     networks:
       - flyos-network
     restart: unless-stopped
 
-  # Real-time Service (will be updated with Supabase auth later)
+  # Real-time Service (UPDATED - now using Supabase auth)
   realtime-service:
     build:
       context: ./services/realtime-service
@@ -125,14 +127,19 @@ services:
       - NODE_ENV=production
       - PORT=4002
       - REDIS_URL=redis://redis:6379
-      # Keep old JWT for now, will migrate to Supabase later
-      - JWT_SECRET=your_jwt_secret_here
-      # Add Supabase config for future migration
+      # UPDATED: Now using Supabase for authentication
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
+      # Keep JWT secret for backwards compatibility during migration
+      - JWT_SECRET=your_jwt_secret_here
       - AUTH_SERVICE_URL=http://auth-service:4000
       - CORS_ORIGIN=http://localhost:3001,http://frontend:3000,http://3.111.215.70:3001
+      # Enable fallback verification during migration
       - ALLOW_FALLBACK_VERIFICATION=true
+      # Add logging for debugging
+      - LOG_LEVEL=debug
+      # Disable testing mode in production
+      - TESTING_MODE=false
     ports:
       - "4002:4002"
     networks:

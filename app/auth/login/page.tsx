@@ -1,4 +1,4 @@
-// app/auth/login/page.tsx
+// app/auth/login/page.tsx - PROFESSIONAL VERSION
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -6,45 +6,37 @@ import { useAuth } from '../../../lib/auth';
 import { useRouter } from 'next/navigation';
 
 export default function Login() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const { login, loading, error, user, clearError } = useAuth();
   const router = useRouter();
-  
-  useEffect(() => {
-    if (user) {
-      const role = user.role.toLowerCase().replace('_', '-');
-      router.push(`/secure/${role}/dashboard`);
-    }
-  }, [user, router]);
 
+  // Clear any existing errors when component mounts
   useEffect(() => {
-    if (error) setErrorMsg(error);
-  }, [error]);
+    clearError();
+  }, [clearError]);
 
+  // Handle successful login
   useEffect(() => {
-    if (errorMsg) {
-      setErrorMsg('');
-      clearError();
+    if (user && !loading) {
+      console.log('Login successful, user authenticated:', user.role);
+      // Navigation is handled by the login function
     }
-  }, [username, password, clearError, errorMsg]);
+  }, [user, loading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
     
-    if (!username || !password) {
-      setErrorMsg('Please enter credentials');
+    if (!email || !password) {
       return;
     }
 
-    try {
-      await login(username, password);
-    } catch (error) {
-      console.error('Login submission error:', error);
+    const success = await login(email, password);
+    if (!success) {
+      console.log('Login failed');
+      // Error is handled by auth context
     }
   };
 
@@ -65,8 +57,6 @@ export default function Login() {
             <source src="/videos/drone-river.webm" type="video/webm" />
           </video>
         </div>
-
-        {/* Reduced gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/20 to-transparent z-10"></div>
       </div>
       
@@ -94,11 +84,13 @@ export default function Login() {
             <form className="space-y-6" onSubmit={handleSubmit}>
               <div className="space-y-4">
                 <input
-                  type="text"
-                  placeholder="Username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 bg-gray-900/60 border border-blue-500/30 rounded-lg focus:outline-none focus:border-blue-400 text-white placeholder-gray-500 transition-colors"
+                  required
+                  disabled={loading}
                 />
                 
                 <input
@@ -107,12 +99,14 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-4 py-3 bg-gray-900/60 border border-blue-500/30 rounded-lg focus:outline-none focus:border-blue-400 text-white placeholder-gray-500 transition-colors"
+                  required
+                  disabled={loading}
                 />
               </div>
 
-              {errorMsg && (
+              {error && (
                 <div className="bg-gradient-to-r from-red-900/40 to-rose-900/40 border-l-4 border-rose-500 text-rose-300 p-3 rounded text-sm">
-                  {errorMsg}
+                  {error}
                 </div>
               )}
 
@@ -121,14 +115,20 @@ export default function Login() {
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600/80 to-indigo-600/80 hover:from-blue-600 hover:to-indigo-600 text-white py-3 rounded-lg transition-colors disabled:opacity-50 flex justify-center items-center gap-2 font-light tracking-wider"
               >
-                <span>{loading ? 'CONNECTING' : 'ACCESS'}</span>
+                {loading ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    <span>AUTHENTICATING</span>
+                  </>
+                ) : (
+                  <span>ACCESS</span>
+                )}
               </button>
             </form>
           </div>
         )}
       </div>
 
-      {/* Add keyframes for animations and text shadow */}
       <style jsx global>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }

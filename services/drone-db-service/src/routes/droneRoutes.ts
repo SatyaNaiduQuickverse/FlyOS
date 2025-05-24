@@ -1,3 +1,4 @@
+// services/drone-db-service/src/routes/droneRoutes.ts
 import express from 'express';
 import { 
   getDroneStateController, 
@@ -6,12 +7,12 @@ import {
   sendCommandController,
   getCommandHistoryController
 } from '../controllers/droneController';
-import { authenticate } from '../middleware/auth';
+import { authenticateSupabase } from '../middleware/supabase-auth';
 
 const router = express.Router();
 
-// Apply authentication to all routes
-router.use(authenticate);
+// Apply Supabase authentication to all routes
+router.use(authenticateSupabase);
 
 // Drone state and telemetry routes
 router.get('/:droneId/state', getDroneStateController);

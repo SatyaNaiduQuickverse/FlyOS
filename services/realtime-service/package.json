@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn src/app.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
     "axios": "^1.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",

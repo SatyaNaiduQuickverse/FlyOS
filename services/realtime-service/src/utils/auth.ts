@@ -1,6 +1,7 @@
 // services/realtime-service/src/utils/auth.ts
 import axios from 'axios';
 import jwt, { JwtPayload } from 'jsonwebtoken';
+import { createClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 
 // JWT configuration
@@ -8,10 +9,23 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_here';
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:4000';
 const TESTING_MODE = process.env.TESTING_MODE === 'true';
 
+// Supabase client (only initialize if config is available)
+let supabase: any = null;
+if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+  logger.info('Supabase client initialized for WebSocket auth');
+}
+
 // Define the user interface
 interface User {
   id: string;
   role: string;
+  region_id?: string;
+  username?: string;
+  full_name?: string;
   [key: string]: any;
 }
 
@@ -19,86 +33,117 @@ interface User {
 interface TokenPayload extends JwtPayload {
   id?: string;
   role?: string;
+  regionId?: string;
+  username?: string;
+  fullName?: string;
 }
 
 /**
- * Verify token with authentication service or locally in testing mode
+ * Enhanced token verification with Supabase and JWT fallback
  * @param token JWT token to verify
  * @returns User object if valid, null if invalid
  */
 export const verifyToken = async (token: string): Promise<User | null> => {
   try {
-    // 1. First attempt: Try to verify the token locally for testing/development purposes
-    if (TESTING_MODE) {
+    // 1. Try Supabase authentication first (if available)
+    if (supabase) {
       try {
-        // In testing mode, accept any valid JWT structure without external verification
-        logger.info('Testing mode enabled, verifying token locally');
+        logger.debug('Attempting Supabase WebSocket authentication');
         
-        // For better debugging, log the token structure (but not the full token)
-        try {
-          const decoded = jwt.decode(token) as TokenPayload;
-          logger.debug('Token structure:', JSON.stringify({
-            id: decoded?.id || '[missing]',
-            role: decoded?.role || '[missing]',
-            tokenStructureValid: !!decoded
-          }));
-        } catch (err) {
-          const decodeErr = err as Error;
-          logger.warn('Could not decode token for inspection:', decodeErr.message);
+        // Verify token with Supabase
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        
+        if (!error && user) {
+          // Get user profile
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+          
+          if (!profileError && profile) {
+            logger.info(`Supabase WebSocket auth successful: ${profile.username} (${profile.role})`);
+            
+            return {
+              id: user.id,
+              role: profile.role,
+              region_id: profile.region_id,
+              username: profile.username,
+              full_name: profile.full_name,
+              email: user.email,
+              ...profile
+            };
+          }
         }
         
-        // Verify the token with the local secret
+        logger.debug('Supabase WebSocket auth failed, falling back to JWT');
+      } catch (supabaseError) {
+        logger.debug('Supabase WebSocket auth error, falling back to JWT:', supabaseError);
+      }
+    }
+    
+    // 2. Fallback to testing mode if enabled
+    if (TESTING_MODE) {
+      try {
+        logger.info('Testing mode enabled for WebSocket, verifying token locally');
+        
         const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
         return {
           id: decoded.id || 'test-user-id',
           role: decoded.role || 'OPERATOR',
-          ...Object(decoded)  // Convert to object before spreading
+          region_id: decoded.regionId,
+          username: decoded.username,
+          full_name: decoded.fullName,
+          ...Object(decoded)
         };
       } catch (err) {
-        const localError = err as Error;
-        logger.warn('Local token verification failed:', localError.message);
-        // Fall through to next verification method
+        logger.warn('Local token verification failed:', (err as Error).message);
       }
     }
     
-    // 2. Second attempt: Try to verify using Auth Service
+    // 3. Try Auth Service verification
     try {
       logger.debug(`Verifying token with auth service at ${AUTH_SERVICE_URL}`);
       const response = await axios.get(`${AUTH_SERVICE_URL}/auth/verify`, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 3000 // 3 second timeout to prevent long delays
+        timeout: 3000
       });
       
       if (response.data?.success) {
         logger.debug('Token verified successfully via auth service');
-        return response.data.user;
+        return {
+          id: response.data.user.id,
+          role: response.data.user.role,
+          region_id: response.data.user.regionId, // Map old to new
+          username: response.data.user.username,
+          full_name: response.data.user.fullName, // Map old to new
+          ...response.data.user
+        };
       }
       
-      logger.warn('Auth service rejected token:', response.data?.message || 'Unknown reason');
-      return null;
-    } catch (err) {
-      const authServiceError = err as Error;
-      logger.warn('Auth service verification failed:', authServiceError.message);
-      
-      // 3. Third attempt: Fall back to local JWT verification if auth service is unavailable
-      if (process.env.ALLOW_FALLBACK_VERIFICATION === 'true') {
-        try {
-          logger.info('Using fallback local verification due to auth service failure');
-          const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
-          return {
-            id: decoded.id || 'fallback-user-id',
-            role: decoded.role || 'OPERATOR',
-            ...Object(decoded)  // Convert to object before spreading
-          };
-        } catch (err) {
-          const fallbackError = err as Error;
-          logger.error('Fallback verification failed:', fallbackError.message);
-          return null;
-        }
+      logger.warn('Auth service rejected token:', response.data?.message);
+    } catch (authServiceError) {
+      logger.warn('Auth service verification failed:', (authServiceError as Error).message);
+    }
+    
+    // 4. Final fallback to local JWT verification
+    if (process.env.ALLOW_FALLBACK_VERIFICATION === 'true') {
+      try {
+        logger.info('Using fallback local verification for WebSocket');
+        const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
+        return {
+          id: decoded.id || 'fallback-user-id',
+          role: decoded.role || 'OPERATOR',
+          region_id: decoded.regionId,
+          username: decoded.username,
+          full_name: decoded.fullName,
+          ...Object(decoded)
+        };
+      } catch (fallbackError) {
+        logger.error('Fallback verification failed:', (fallbackError as Error).message);
       }
     }
     
-    // If all verification methods have failed
     return null;
   } catch (err) {
     const error = err as Error;

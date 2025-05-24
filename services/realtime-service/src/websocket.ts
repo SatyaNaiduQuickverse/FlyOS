@@ -4,7 +4,7 @@ import { ExtendedError } from 'socket.io/dist/namespace';
 import axios from 'axios';
 import { subscribeToDroneUpdates, getDroneState } from './redis';
 import { logger } from './utils/logger';
-import { verifyToken } from './utils/auth';
+import { verifySupabaseToken as verifyToken } from './utils/supabase-auth';
 
 // Define interface for authenticated socket
 interface AuthenticatedSocket extends Socket {
