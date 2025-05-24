@@ -4,7 +4,7 @@ import { ExtendedError } from 'socket.io/dist/namespace';
 import axios from 'axios';
 import { subscribeToDroneUpdates, getDroneState } from './redis';
 import { logger } from './utils/logger';
-import { verifySupabaseToken as verifyToken } from './utils/supabase-auth';
+import { verifySupabaseToken } from './utils/supabase-auth';
 
 // Define interface for authenticated socket
 interface AuthenticatedSocket extends Socket {
@@ -26,7 +26,7 @@ export const setupWebSocketServer = (io: Server) => {
       }
       
       // Verify the token
-      const user = await verifyToken(token as string);
+      const user = await verifySupabaseToken(token as string);
       
       if (!user) {
         return next(new Error('Invalid token'));
