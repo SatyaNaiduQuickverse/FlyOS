@@ -1,9 +1,9 @@
+// services/drone-db-service/src/app.ts - FIXED VERSION
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import droneRoutes from './routes/droneRoutes';
 import { initDatabase } from './database';
-import { initRedis } from './redis';
 import { logger } from './utils/logger';
 
 // Initialize Express app
@@ -29,12 +29,26 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Initialize Redis with error handling
+const initRedisOptional = async () => {
+  try {
+    const { initRedis } = await import('./redis');
+    await initRedis();
+    logger.info('Redis connected successfully');
+  } catch (error) {
+    logger.warn('Redis connection failed, continuing without Redis:', error);
+    // App will continue to work without Redis for real-time features
+  }
+};
+
 // Start server
 const startServer = async () => {
   try {
-    // Initialize database connections
+    // Initialize database connections (required)
     await initDatabase();
-    await initRedis();
+    
+    // Initialize Redis (optional)
+    await initRedisOptional();
     
     app.listen(PORT, () => {
       logger.info(`Drone data service running on port ${PORT}`);

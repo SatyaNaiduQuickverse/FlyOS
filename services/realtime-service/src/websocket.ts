@@ -1,7 +1,6 @@
 // services/realtime-service/src/websocket.ts
 import { Server, Socket } from 'socket.io';
 import { ExtendedError } from 'socket.io/dist/namespace';
-import axios from 'axios';
 import { subscribeToDroneUpdates, getDroneState } from './redis';
 import { logger } from './utils/logger';
 import { verifySupabaseToken } from './utils/supabase-auth';
@@ -11,12 +10,13 @@ interface AuthenticatedSocket extends Socket {
   user?: {
     id: string;
     role: string;
+    username?: string;
   };
   droneSubscriptions: Map<string, () => void>;
 }
 
 export const setupWebSocketServer = (io: Server) => {
-  // Authentication middleware
+  // Authentication middleware - now using ONLY Supabase
   io.use(async (socket: Socket, next: (err?: ExtendedError) => void) => {
     try {
       const token = socket.handshake.auth.token || socket.handshake.query.token;
@@ -25,17 +25,18 @@ export const setupWebSocketServer = (io: Server) => {
         return next(new Error('Authentication required'));
       }
       
-      // Verify the token
+      // Verify the token with Supabase
       const user = await verifySupabaseToken(token as string);
       
       if (!user) {
-        return next(new Error('Invalid token'));
+        return next(new Error('Invalid or expired token'));
       }
       
       // Set user data and initialize subscriptions map
       (socket as AuthenticatedSocket).user = user;
       (socket as AuthenticatedSocket).droneSubscriptions = new Map();
       
+      logger.info(`WebSocket client authenticated: ${user.username} (${user.role})`);
       next();
     } catch (error) {
       logger.error('Socket authentication error:', error);
@@ -46,7 +47,7 @@ export const setupWebSocketServer = (io: Server) => {
   // Handle connections
   io.on('connection', (socket: Socket) => {
     const authenticatedSocket = socket as AuthenticatedSocket;
-    logger.info(`Client connected: ${authenticatedSocket.id}, user: ${authenticatedSocket.user?.id}`);
+    logger.info(`WebSocket client connected: ${authenticatedSocket.id}, user: ${authenticatedSocket.user?.username}`);
     
     // Subscribe to drone updates
     authenticatedSocket.on('subscribe_drone', async (droneId: string) => {
@@ -66,7 +67,6 @@ export const setupWebSocketServer = (io: Server) => {
         // Get initial state
         const currentState = await getDroneState(droneId);
         if (currentState) {
-          // Add a socketServerTimestamp for initial state as well
           const timestamp = Date.now();
           const enhancedState = {
             ...currentState,
@@ -83,7 +83,7 @@ export const setupWebSocketServer = (io: Server) => {
             timestamp: timestamp
           });
           
-          logger.debug(`Emitted initial state for ${droneId} with timestamp ${timestamp}`);
+          logger.debug(`Emitted initial state for ${droneId}`);
         }
         
         // Subscribe to updates
@@ -95,8 +95,6 @@ export const setupWebSocketServer = (io: Server) => {
             type: 'update',
             timestamp: timestamp
           });
-          
-          logger.debug(`Emitted update for ${droneId} with timestamp ${timestamp}`);
         });
         
         // Store unsubscribe function
@@ -106,7 +104,7 @@ export const setupWebSocketServer = (io: Server) => {
         authenticatedSocket.emit('subscription_status', { 
           droneId, 
           status: 'subscribed',
-          timestamp: Date.now() // Add timestamp for subscription confirmation
+          timestamp: Date.now()
         });
       } catch (error) {
         logger.error(`Error subscribing to drone ${droneId}:`, error);
@@ -133,32 +131,19 @@ export const setupWebSocketServer = (io: Server) => {
           });
           
           logger.debug(`Client ${authenticatedSocket.id} unsubscribed from drone ${droneId}`);
-        } else {
-          authenticatedSocket.emit('subscription_status', { 
-            droneId, 
-            status: 'not_subscribed',
-            timestamp: Date.now()
-          });
         }
       } catch (error) {
         logger.error(`Error unsubscribing from drone ${droneId}:`, error);
-        authenticatedSocket.emit('error', { 
-          message: 'Failed to unsubscribe from drone updates',
-          droneId
-        });
       }
     });
     
     // Handle ping for latency measurement
     authenticatedSocket.on('ping', (data) => {
-      // Echo back with server timestamp
       const serverTime = Date.now();
       authenticatedSocket.emit('pong', {
         clientSentTime: data.timestamp,
         serverTime: serverTime
       });
-      
-      logger.debug(`Received ping from ${authenticatedSocket.id}, sent pong with serverTime=${serverTime}`);
     });
     
     // Handle disconnect
@@ -167,11 +152,9 @@ export const setupWebSocketServer = (io: Server) => {
         // Clean up all subscriptions
         for (const [droneId, unsubscribe] of authenticatedSocket.droneSubscriptions.entries()) {
           unsubscribe();
-          logger.debug(`Unsubscribed ${authenticatedSocket.id} from drone ${droneId} due to disconnect`);
         }
-        
         authenticatedSocket.droneSubscriptions.clear();
-        logger.info(`Client disconnected: ${authenticatedSocket.id}`);
+        logger.info(`WebSocket client disconnected: ${authenticatedSocket.id}`);
       } catch (error) {
         logger.error(`Error handling disconnect for ${authenticatedSocket.id}:`, error);
       }

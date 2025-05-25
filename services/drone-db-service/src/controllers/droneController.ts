@@ -1,3 +1,4 @@
+// services/drone-db-service/src/controllers/droneController.ts - FIXED VERSION
 import { Request, Response } from 'express';
 import { 
   storeTelemetryData, 
@@ -5,11 +6,23 @@ import {
   recordCommand,
   getCommandHistory
 } from '../services/droneService';
-import { getDroneState } from '../redis';
 import { pool } from '../database';
 import { logger } from '../utils/logger';
 
-// Get all drones (with role-based filtering) - THIS WAS MISSING!
+// Get drone state from Redis (with fallback)
+const getDroneStateFromRedis = async (droneId: string) => {
+  try {
+    // Try to import and use Redis
+    const { getDroneState } = await import('../redis');
+    return await getDroneState(droneId);
+  } catch (error) {
+    // Redis not available, return null
+    logger.warn(`Redis not available for drone ${droneId}, using database only`);
+    return null;
+  }
+};
+
+// Get all drones (with role-based filtering)
 export const getAllDronesController = async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
@@ -36,7 +49,7 @@ export const getAllDronesController = async (req: Request, res: Response) => {
     } else if (role === 'OPERATOR') {
       // Operators can only see drones assigned to them
       whereClause = 'WHERE d.operator_id = $1';
-      values = [req.user.id];
+      values = [req.user.username]; // Use username for now since we're using TEXT
     } else {
       return res.status(403).json({
         success: false,
@@ -44,7 +57,7 @@ export const getAllDronesController = async (req: Request, res: Response) => {
       });
     }
     
-    // Query to get drones from database
+    // Simplified query without complex joins
     const query = `
       SELECT 
         d.id,
@@ -55,33 +68,32 @@ export const getAllDronesController = async (req: Request, res: Response) => {
         d.last_maintenance,
         d.created_at,
         d.updated_at,
-        r.name as region_name,
-        u.username as operator_username,
-        u.full_name as operator_name
+        r.name as region_name
       FROM drones d
       LEFT JOIN regions r ON d.region_id = r.id
-      LEFT JOIN users u ON d.operator_id = u.id
       ${whereClause}
       ORDER BY d.status, d.id;
     `;
     
+    logger.info(`Executing query: ${query} with values: ${JSON.stringify(values)}`);
+    
     const result = await pool.query(query, values);
     const drones = result.rows;
     
-    // Enhance with real-time state from Redis
+    // Enhance with real-time state from Redis (if available)
     const enhancedDrones = await Promise.all(
       drones.map(async (drone) => {
         try {
-          const realTimeState = await getDroneState(drone.id);
+          const realTimeState = await getDroneStateFromRedis(drone.id);
           return {
             ...drone,
-            // Add real-time telemetry data
-            latitude: realTimeState?.latitude,
-            longitude: realTimeState?.longitude,
-            altitude: realTimeState?.altitudeRelative,
-            battery_percentage: realTimeState?.percentage,
+            // Add real-time telemetry data if available
+            latitude: realTimeState?.latitude || null,
+            longitude: realTimeState?.longitude || null,
+            altitude: realTimeState?.altitudeRelative || null,
+            battery_percentage: realTimeState?.percentage || null,
             connected: realTimeState?.connected || false,
-            flight_mode: realTimeState?.flight_mode,
+            flight_mode: realTimeState?.flight_mode || 'UNKNOWN',
             armed: realTimeState?.armed || false,
             last_telemetry: realTimeState?._meta?.redisTimestamp ? 
               new Date(realTimeState._meta.redisTimestamp) : null
@@ -91,7 +103,13 @@ export const getAllDronesController = async (req: Request, res: Response) => {
           return {
             ...drone,
             connected: false,
-            last_telemetry: null
+            last_telemetry: null,
+            latitude: null,
+            longitude: null,
+            altitude: null,
+            battery_percentage: null,
+            flight_mode: 'UNKNOWN',
+            armed: false
           };
         }
       })
@@ -110,7 +128,8 @@ export const getAllDronesController = async (req: Request, res: Response) => {
     logger.error(`Error getting all drones: ${error}`);
     return res.status(500).json({ 
       success: false, 
-      message: 'Server error' 
+      message: 'Server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 };
@@ -120,7 +139,7 @@ export const getDroneStateController = async (req: Request, res: Response) => {
   try {
     const { droneId } = req.params;
     
-    const state = await getDroneState(droneId);
+    const state = await getDroneStateFromRedis(droneId);
     
     if (!state) {
       return res.status(404).json({ 
@@ -218,7 +237,7 @@ export const sendCommandController = async (req: Request, res: Response) => {
       });
     }
     
-    const userId = req.user.id; // Now TypeScript knows req.user exists
+    const userId = req.user.id;
     
     if (!commandType) {
       return res.status(400).json({

@@ -2,12 +2,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { logger } from '../utils/logger';
+import { pool } from '../database';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Clean type declaration - only define it once
 declare global {
   namespace Express {
     interface Request {
@@ -17,6 +19,7 @@ declare global {
         region_id?: string;
         username?: string;
         full_name?: string;
+        email?: string;
         [key: string]: any;
       };
     }
@@ -28,29 +31,82 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
     const authHeader = req.headers.authorization;
     
     if (!authHeader?.startsWith('Bearer ')) {
+      logger.warn('No authorization header provided');
       return res.status(401).json({ success: false, message: 'No token provided' });
     }
     
     const token = authHeader.substring(7);
+    logger.debug('Attempting to verify Supabase token');
     
     // Verify token with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
-    if (error || !user) {
-      logger.warn('Supabase token verification failed:', error?.message);
+    if (error) {
+      logger.warn('Supabase token verification failed:', error.message);
+      if (error.message.includes('expired') || error.message.includes('JWT')) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Token expired. Please login again.',
+          code: 'TOKEN_EXPIRED'
+        });
+      }
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
     
-    // Get user profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    if (!user) {
+      logger.warn('No user found in Supabase token');
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
     
-    if (profileError || !profile) {
-      logger.warn('User profile not found:', profileError?.message);
-      return res.status(401).json({ success: false, message: 'User profile not found' });
+    logger.debug(`Supabase user verified: ${user.id} (${user.email})`);
+    
+    // Get user profile from local database
+    let profile = null;
+    try {
+      const { rows } = await pool.query(
+        'SELECT * FROM profiles WHERE id = $1',
+        [user.id]
+      );
+      
+      if (rows.length > 0) {
+        profile = rows[0];
+        logger.debug(`Profile found: ${profile.username} (${profile.role})`);
+      } else {
+        // Profile not found in local DB, create it from Supabase user metadata
+        logger.info(`Creating profile for new user: ${user.id}`);
+        
+        const userData = user.user_metadata || {};
+        const newProfile = {
+          id: user.id,
+          username: userData.username || user.email?.split('@')[0] || 'user',
+          role: userData.role || 'MAIN_HQ',  // Default to MAIN_HQ for now
+          region_id: userData.region_id || null,
+          full_name: userData.full_name || 'User',
+          email: user.email
+        };
+        
+        const { rows: insertedRows } = await pool.query(
+          `INSERT INTO profiles (id, username, role, region_id, full_name, email) 
+           VALUES ($1, $2, $3, $4, $5, $6) 
+           ON CONFLICT (id) DO UPDATE SET 
+             username = EXCLUDED.username,
+             role = EXCLUDED.role,
+             region_id = EXCLUDED.region_id,
+             full_name = EXCLUDED.full_name,
+             email = EXCLUDED.email
+           RETURNING *`,
+          [newProfile.id, newProfile.username, newProfile.role, newProfile.region_id, newProfile.full_name, newProfile.email]
+        );
+        
+        profile = insertedRows[0];
+        logger.info(`Profile created successfully for user: ${profile.username}`);
+      }
+    } catch (profileError) {
+      logger.error('Error fetching/creating user profile:', profileError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Error processing user profile' 
+      });
     }
     
     // Set user in request with complete profile data
@@ -64,10 +120,10 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
       ...profile
     };
     
-    logger.debug(`User authenticated: ${profile.username} (${profile.role})`);
+    logger.debug(`User authenticated successfully: ${profile.username} (${profile.role})`);
     next();
   } catch (error) {
     logger.error('Supabase authentication error:', error);
-    return res.status(401).json({ success: false, message: 'Authentication failed' });
+    return res.status(500).json({ success: false, message: 'Authentication failed' });
   }
 };
