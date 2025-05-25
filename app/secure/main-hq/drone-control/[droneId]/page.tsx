@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - WEBSOCKET ENABLED
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -22,43 +22,21 @@ export default function DroneControlPage() {
   const { token } = useAuth();
   
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [socketConnected, setSocketConnected] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [networkLatency, setNetworkLatency] = useState<number | null>(null);
 
-  // Use the custom hook to manage drone state and WebSocket connection
+  // Use the WebSocket-enabled hook for real-time drone state
   const { 
     drone, 
     isLoading, 
     error, 
     isConnected,
     latency,
-    lastUpdate: lastStateUpdate,
+    lastUpdate,
     sendCommand 
   } = useDroneState({
     droneId: droneId as string,
     token,
     initialFetch: true
   });
-
-  // Update UI state based on WebSocket connection
-  useEffect(() => {
-    setSocketConnected(isConnected);
-  }, [isConnected]);
-
-  // Update UI with last update time
-  useEffect(() => {
-    if (lastStateUpdate) {
-      setLastUpdate(lastStateUpdate);
-    }
-  }, [lastStateUpdate]);
-
-  // Update network latency
-  useEffect(() => {
-    if (latency !== null) {
-      setNetworkLatency(latency);
-    }
-  }, [latency]);
 
   const handleReturnToDashboard = () => {
     router.push('/secure/main-hq/dashboard');
@@ -70,7 +48,8 @@ export default function DroneControlPage() {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin h-10 w-10 border-4 border-blue-500 border-t-transparent rounded-full mb-4"></div>
-          <div className="text-white">Connecting to drone {droneId}...</div>
+          <div className="text-white">Establishing real-time connection to drone {droneId}...</div>
+          <div className="text-gray-400 text-sm mt-2">Connecting to WebSocket...</div>
         </div>
       </div>
     );
@@ -145,8 +124,11 @@ export default function DroneControlPage() {
               </div>
               
               <div className="flex items-center gap-2">
-                <Signal className={`h-5 w-5 ${socketConnected ? 'text-blue-500' : 'text-red-500'}`} />
-                <span className="text-white">{socketConnected ? 'Connected' : 'Disconnected'}</span>
+                <Signal className={`h-5 w-5 ${isConnected ? 'text-blue-500' : 'text-red-500'}`} />
+                <span className="text-white">{isConnected ? 'Live' : 'Disconnected'}</span>
+                {isConnected && (
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                )}
               </div>
               
               {/* Live Mission Indicator */}
@@ -158,19 +140,26 @@ export default function DroneControlPage() {
         </div>
       </header>
       
-      {/* Connection info */}
-      {lastUpdate && (
-        <div className="bg-gray-900/60 border-b border-gray-800">
-          <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6 lg:px-8 text-xs text-gray-400 flex justify-between">
+      {/* Real-time connection info */}
+      <div className="bg-gray-900/60 border-b border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6 lg:px-8 text-xs text-gray-400 flex justify-between">
+          <div className="flex items-center gap-4">
             <div>
-              Last update: {lastUpdate.toLocaleTimeString()}
+              WebSocket: <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
             </div>
-            <div>
-              Latency: {networkLatency !== null ? `${networkLatency}ms` : 'Unknown'}
-            </div>
+            {lastUpdate && (
+              <div>
+                Last update: {lastUpdate.toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+          <div>
+            Latency: {latency !== null ? `${latency}ms` : 'Unknown'}
           </div>
         </div>
-      )}
+      </div>
       
       {/* Tabs */}
       <div className="bg-gray-900/60 backdrop-blur-sm">
@@ -235,11 +224,10 @@ export default function DroneControlPage() {
         
         {activeTab === 'control' && (
           <div className="space-y-6">
-            {/* Camera and basic controls */}
             <FinalCombinedControl 
               drone={drone} 
               onSendCommand={sendCommand} 
-              connected={socketConnected}
+              connected={isConnected}
             />
           </div>
         )}
@@ -252,7 +240,7 @@ export default function DroneControlPage() {
           <DroneSettings 
             drone={drone} 
             onSendCommand={sendCommand} 
-            isControlEnabled={socketConnected} 
+            isControlEnabled={isConnected} 
           />
         )}
       </main>

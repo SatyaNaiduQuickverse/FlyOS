@@ -1,4 +1,3 @@
-// services/realtime-service/src/utils/supabase-auth.ts
 import { createClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 
@@ -13,44 +12,37 @@ interface User {
   region_id?: string;
   username?: string;
   full_name?: string;
+  email?: string;
   [key: string]: any;
 }
 
 export const verifySupabaseToken = async (token: string): Promise<User | null> => {
   try {
+    logger.debug('Verifying Supabase token for WebSocket connection');
+    
     // Verify token with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
     if (error || !user) {
-      logger.warn('Supabase token verification failed:', error?.message);
+      logger.warn('Supabase WebSocket token verification failed:', error?.message);
       return null;
     }
     
-    // Get user profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    logger.debug(`Supabase WebSocket user verified: ${user.id} (${user.email})`);
     
-    if (profileError || !profile) {
-      logger.warn('User profile not found:', profileError?.message);
-      return null;
-    }
-    
-    logger.debug(`WebSocket user authenticated: ${profile.username} (${profile.role})`);
+    // Extract user data from token metadata
+    const userData = user.user_metadata || {};
     
     return {
       id: user.id,
-      role: profile.role,
-      region_id: profile.region_id,
-      username: profile.username,
-      full_name: profile.full_name,
+      role: userData.role || 'OPERATOR',
+      region_id: userData.region_id,
+      username: userData.username || user.email?.split('@')[0],
+      full_name: userData.full_name || 'User',
       email: user.email,
-      ...profile
     };
   } catch (error) {
-    logger.error('Supabase token verification error:', error);
+    logger.error('Supabase WebSocket token verification error:', error);
     return null;
   }
 };

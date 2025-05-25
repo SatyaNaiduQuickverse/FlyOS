@@ -1,19 +1,38 @@
-// components/DroneControlHub.tsx
+// components/DroneControlHub.tsx - WEBSOCKET ISSUES FIXED
 import React, { useState, useEffect } from 'react';
 import { 
   Plane, Battery, Signal, MapPin, Clock, 
-  ArrowUpCircle, AlertTriangle, RefreshCw 
+  ArrowUpCircle, AlertTriangle, RefreshCw, Activity 
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import DroneLocationMap from './DroneLocationMap';
 import axios from 'axios';
 import { useAuth } from '../lib/auth';
 
-// Define the drone interface
+// Updated drone interface to match your backend response
 interface DroneData {
   id: string;
   model: string;
   status: string;
+  region_id?: string;
+  region_name?: string;
+  operator_id?: string;
+  last_maintenance?: string;
+  created_at?: string;
+  updated_at?: string;
+  
+  // Real-time telemetry from Redis
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  battery_percentage?: number;
+  connected?: boolean;
+  flight_mode?: string;
+  armed?: boolean;
+  last_telemetry?: string;
+  voltage?: number;
+  
+  // Computed fields for UI
   location?: string;
   batteryLevel?: number;
   signalStrength?: number;
@@ -23,31 +42,24 @@ interface DroneData {
     lat: number;
     lng: number;
   };
-  // Add fields from Redis/TimescaleDB
-  latitude?: number;
-  longitude?: number;
-  percentage?: number;
-  voltage?: number;
-  current?: number;
-  connected?: boolean;
-  flight_mode?: string;
-  timestamp?: string;
-  // Add any other fields you need
 }
 
 const DroneControlHub: React.FC = () => {
   const router = useRouter();
-  const { token, refreshSession } = useAuth(); // Get token from auth context
+  const { token, refreshSession, user } = useAuth();
   const [drones, setDrones] = useState<DroneData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedDrone, setSelectedDrone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<boolean>(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  // Retry handler
+  // Enhanced retry handler
   const handleRetry = async () => {
     setRetrying(true);
     try {
+      console.log('Retrying connection...');
+      
       // Try to refresh the session first
       await refreshSession();
       
@@ -55,6 +67,7 @@ const DroneControlHub: React.FC = () => {
       await fetchDrones();
       
       setError(null);
+      console.log('Retry successful');
     } catch (err) {
       console.error('Retry failed:', err);
       setError('Authentication failed. Please log in again.');
@@ -67,9 +80,8 @@ const DroneControlHub: React.FC = () => {
     }
   };
 
-  // Fetch drone data from backend
+  // Enhanced fetch function with better error handling
   const fetchDrones = async () => {
-    setLoading(true);
     try {
       if (!token) {
         setError('Authentication required');
@@ -77,41 +89,71 @@ const DroneControlHub: React.FC = () => {
         return;
       }
       
-      console.log('Fetching drones list...');
+      console.log('Fetching drones from Supabase-authenticated API...');
       
-      // Fetch the list of drones from your backend
+      // Use the existing API endpoint which is already connected to Supabase
       const response = await axios.get('/api/drones', {
         headers: {
           Authorization: `Bearer ${token}`
-        }
+        },
+        timeout: 10000 // 10 second timeout
       });
       
+      console.log('API Response received:', response.data.success ? 'Success' : 'Failed');
+      
       if (response.data.success) {
-        // Map the response data to your DroneData interface
-        const droneList = response.data.data.map((drone: any) => ({
-          id: drone.id,
-          model: drone.model || 'Unknown',
-          status: drone.status || 'UNKNOWN',
-          // Parse location from coordinates if available
-          location: drone.latitude && drone.longitude 
+        // Transform the backend data to match our UI needs
+        const droneList = response.data.data.map((drone: any) => {
+          // Create location string from coordinates
+          const location = drone.latitude && drone.longitude 
             ? `${drone.latitude.toFixed(4)}, ${drone.longitude.toFixed(4)}` 
-            : 'Unknown Location',
-          // Map fields from Redis/TimescaleDB
-          batteryLevel: drone.percentage || 0,
-          signalStrength: drone.connected ? 100 : 0,
-          lastActive: new Date(drone.timestamp || Date.now()).toLocaleString(),
-          mission: drone.flight_mode || 'None',
-          coordinates: {
-            lat: drone.latitude || 0,
-            lng: drone.longitude || 0
-          },
-          // Keep the original fields for reference
-          ...drone
-        }));
+            : 'Location Unknown';
+          
+          // Determine signal strength based on connection status and last telemetry
+          let signalStrength = 0;
+          if (drone.connected) {
+            if (drone.last_telemetry) {
+              const lastUpdate = new Date(drone.last_telemetry);
+              const now = new Date();
+              const timeDiff = (now.getTime() - lastUpdate.getTime()) / 1000; // seconds
+              
+              if (timeDiff < 30) signalStrength = 100;
+              else if (timeDiff < 60) signalStrength = 80;
+              else if (timeDiff < 120) signalStrength = 60;
+              else signalStrength = 30;
+            } else {
+              signalStrength = 50; // Connected but no recent telemetry
+            }
+          }
+          
+          // Format last active time
+          const lastActive = drone.last_telemetry 
+            ? new Date(drone.last_telemetry).toLocaleString()
+            : 'Never';
+          
+          return {
+            ...drone,
+            // UI-friendly computed fields
+            location,
+            batteryLevel: drone.battery_percentage || 0,
+            signalStrength,
+            lastActive,
+            mission: drone.flight_mode || 'Unknown',
+            coordinates: drone.latitude && drone.longitude ? {
+              lat: drone.latitude,
+              lng: drone.longitude
+            } : undefined
+          };
+        });
         
         setDrones(droneList);
         setError(null);
-        console.log(`Successfully fetched ${droneList.length} drones`);
+        setLastUpdate(new Date());
+        console.log(`Successfully loaded ${droneList.length} drones`);
+        
+        // Log connection status
+        const connectedCount = droneList.filter((d: DroneData) => d.connected).length;
+        console.log(`${connectedCount}/${droneList.length} drones connected`);
       } else {
         setError(response.data.message || 'Failed to load drones');
         console.error('API error:', response.data.message);
@@ -119,27 +161,48 @@ const DroneControlHub: React.FC = () => {
     } catch (err: any) {
       console.error('Error fetching drones:', err);
       
-      if (err.response?.status === 401) {
-        setError('Authentication required - Please retry or login again');
+      if (err.response) {
+        // Server responded with error status
+        if (err.response.status === 401) {
+          setError('Authentication expired - Please retry or login again');
+        } else if (err.response.status === 503) {
+          setError('Backend service unavailable - Please retry');
+        } else {
+          setError(`Server error (${err.response.status}): ${err.response.data?.message || err.message}`);
+        }
+      } else if (err.code === 'ECONNREFUSED') {
+        setError('Cannot connect to drone database service');
+      } else if (err.code === 'ECONNABORTED') {
+        setError('Request timeout - Backend service not responding');
       } else {
-        setError(`Error connecting to drone database: ${err.message}`);
+        setError(`Network error: ${err.message}`);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // Initial fetch and polling setup
+  // Setup polling and initial fetch
   useEffect(() => {
+    if (!token) {
+      setError('No authentication token available');
+      setLoading(false);
+      return;
+    }
+    
+    // Initial fetch
     fetchDrones();
     
-    // Set up polling to refresh drone list every 30 seconds
-    const intervalId = setInterval(fetchDrones, 30000);
+    // Set up polling to refresh drone list every 15 seconds for real-time updates
+    const intervalId = setInterval(() => {
+      fetchDrones();
+    }, 15000);
     
     // Clean up on unmount
     return () => clearInterval(intervalId);
   }, [token]);
 
+  // Helper functions for UI styling
   const getBatteryColor = (level: number) => {
     if (level >= 70) return 'text-green-400';
     if (level >= 30) return 'text-yellow-400';
@@ -153,7 +216,7 @@ const DroneControlHub: React.FC = () => {
   };
 
   const getStatusColor = (status: string) => {
-    switch(status) {
+    switch(status?.toUpperCase()) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/30';
       case 'STANDBY': return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
       case 'MAINTENANCE': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30';
@@ -162,57 +225,109 @@ const DroneControlHub: React.FC = () => {
     }
   };
 
+  const getConnectionStatus = (drone: DroneData) => {
+    if (drone.connected) {
+      return (
+        <div className="flex items-center gap-1 text-green-400">
+          <Activity className="h-3 w-3" />
+          <span className="text-xs">LIVE</span>
+        </div>
+      );
+    } else {
+      return (
+        <div className="flex items-center gap-1 text-red-400">
+          <Activity className="h-3 w-3" />
+          <span className="text-xs">OFFLINE</span>
+        </div>
+      );
+    }
+  };
+
+  // Event handlers
   const handleSelectDrone = (droneId: string) => {
     setSelectedDrone(selectedDrone === droneId ? null : droneId);
   };
 
   const handleControlDrone = (droneId: string) => {
     console.log(`Navigating to drone control page for ${droneId}`);
-    router.push(`/secure/main-hq/drone-control/${droneId}`);
+    // Navigate using the correct path structure based on user role
+    if (user?.role === 'MAIN_HQ') {
+      router.push(`/secure/main-hq/drone-control/${droneId}`);
+    } else if (user?.role === 'REGIONAL_HQ') {
+      router.push(`/secure/regional-hq/drone-control/${droneId}`);
+    } else {
+      router.push(`/secure/operator/drone-control/${droneId}`);
+    }
   };
 
-  const handleRecallDrone = (droneId: string) => {
-    // Implement actual recall functionality
+  const handleRecallDrone = async (droneId: string) => {
     if (!token) {
       setError('Authentication required to send commands');
       return;
     }
     
-    // Send RTL (Return to Launch) command
-    axios.post(`/api/drones/${droneId}/command`, {
-      commandType: 'RTL',
-      parameters: {}
-    }, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    })
-    .then(response => {
+    try {
+      console.log(`Sending RTL command to drone ${droneId}`);
+      
+      const response = await axios.post(`/api/drones/${droneId}/command`, {
+        commandType: 'RTL',
+        parameters: {}
+      }, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
       if (response.data.success) {
-        alert(`Initiated recall for drone ${droneId}`);
+        alert(`✅ Recall command sent to drone ${droneId}`);
+        // Refresh drone data to see updated status
+        fetchDrones();
       } else {
-        alert(`Failed to recall drone: ${response.data.message}`);
+        alert(`❌ Failed to recall drone: ${response.data.message}`);
       }
-    })
-    .catch(err => {
+    } catch (err: any) {
       console.error('Error recalling drone:', err);
-      alert(`Error recalling drone: ${err.message}`);
-    });
+      alert(`❌ Error recalling drone: ${err.message}`);
+    }
   };
+
+  // Calculate stats
+  const connectedDrones = drones.filter(d => d.connected).length;
+  const activeDrones = drones.filter(d => d.status === 'ACTIVE').length;
 
   return (
     <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
       <div className="flex justify-between items-center mb-6">
-        <h3 className="text-lg font-light tracking-wider flex items-center gap-2 text-blue-300">
-          <Plane className="h-5 w-5" />
-          ACTIVE DRONE CONTROL
-        </h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-light tracking-wider flex items-center gap-2 text-blue-300">
+            <Plane className="h-5 w-5" />
+            DRONE CONTROL HUB
+          </h3>
+          {user && (
+            <span className="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded">
+              {user.role} ACCESS
+            </span>
+          )}
+        </div>
         
-        {!error && !loading && (
-          <div className="text-sm text-gray-400">
-            {drones.length} drone{drones.length !== 1 ? 's' : ''} available
-          </div>
-        )}
+        <div className="flex items-center gap-4 text-sm">
+          {lastUpdate && (
+            <div className="text-gray-400">
+              Updated: {lastUpdate.toLocaleTimeString()}
+            </div>
+          )}
+          {!error && !loading && (
+            <div className="flex items-center gap-2">
+              <div className="text-gray-400">
+                {connectedDrones}/{drones.length} Connected
+              </div>
+              <div className="text-gray-400">•</div>
+              <div className="text-gray-400">
+                {activeDrones} Active
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -221,54 +336,84 @@ const DroneControlHub: React.FC = () => {
             <div className="animate-ping absolute inset-0 rounded-full h-12 w-12 bg-blue-400 opacity-10"></div>
             <div className="animate-spin relative rounded-full h-12 w-12 border-2 border-gray-600 border-t-blue-500"></div>
           </div>
+          <div className="ml-4 text-gray-400">
+            Loading drone fleet data...
+          </div>
         </div>
       ) : error ? (
         <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-4 text-red-300">
-          <p className="mb-4">{error}</p>
-          <button 
-            onClick={handleRetry}
-            disabled={retrying}
-            className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-md transition-colors flex items-center gap-2"
-          >
-            {retrying ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                <span>Retrying...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4" />
-                <span>Retry</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 mt-1 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium mb-2">Connection Error</p>
+              <p className="text-sm mb-4">{error}</p>
+              <button 
+                onClick={handleRetry}
+                disabled={retrying}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-md transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {retrying ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Retrying...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Retry Connection</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       ) : drones.length === 0 ? (
-        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700 text-center">
-          <p className="text-gray-400">No drones available.</p>
+        <div className="bg-gray-800/50 rounded-lg p-8 border border-gray-700 text-center">
+          <Plane className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+          <p className="text-gray-400 text-lg mb-2">No Drones Available</p>
+          <p className="text-gray-500 text-sm">No drone units are currently assigned to your command.</p>
         </div>
       ) : (
         <div className="space-y-4">
           {drones.map((drone) => (
-            <div key={drone.id} className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+            <div key={drone.id} className="bg-gray-800/50 rounded-lg p-4 border border-gray-700 transition-all hover:border-gray-600">
               <div 
                 className="flex justify-between items-center cursor-pointer"
                 onClick={() => handleSelectDrone(drone.id)}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <Plane className="h-5 w-5 text-blue-400" />
-                  <span className="font-medium text-white">{drone.id}</span>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{drone.id}</span>
+                      {getConnectionStatus(drone)}
+                    </div>
+                    <span className="text-xs text-gray-500">{drone.model}</span>
+                  </div>
                   <span className={`text-xs px-2 py-1 rounded-full border ${getStatusColor(drone.status)}`}>
                     {drone.status}
                   </span>
                 </div>
-                <div>
-                  <span className="text-sm text-gray-400">{drone.model}</span>
+                
+                <div className="flex items-center gap-4 text-sm text-gray-400">
+                  <div className="flex items-center gap-1">
+                    <Battery className={`h-4 w-4 ${getBatteryColor(drone.batteryLevel || 0)}`} />
+                    <span>{drone.batteryLevel || 0}%</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Signal className={`h-4 w-4 ${getSignalColor(drone.signalStrength || 0)}`} />
+                    <span>{drone.signalStrength || 0}%</span>
+                  </div>
+                  {drone.region_name && (
+                    <span className="text-xs bg-gray-700/50 px-2 py-1 rounded">
+                      {drone.region_name}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {selectedDrone === drone.id && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-gray-900/60 p-3 rounded-lg">
@@ -277,6 +422,9 @@ const DroneControlHub: React.FC = () => {
                           <span className="text-sm text-gray-400">Battery</span>
                         </div>
                         <div className="text-xl font-light">{drone.batteryLevel || 0}%</div>
+                        {drone.voltage && (
+                          <div className="text-xs text-gray-500">{drone.voltage.toFixed(1)}V</div>
+                        )}
                       </div>
                       <div className="bg-gray-900/60 p-3 rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
@@ -284,23 +432,41 @@ const DroneControlHub: React.FC = () => {
                           <span className="text-sm text-gray-400">Signal</span>
                         </div>
                         <div className="text-xl font-light">{drone.signalStrength || 0}%</div>
+                        <div className="text-xs text-gray-500">
+                          {drone.connected ? 'Connected' : 'Offline'}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="bg-gray-900/60 p-3 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <MapPin className="h-4 w-4 text-blue-400" />
-                        <span className="text-sm text-gray-400">Location</span>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-gray-900/60 p-3 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MapPin className="h-4 w-4 text-blue-400" />
+                          <span className="text-sm text-gray-400">Location</span>
+                        </div>
+                        <div className="text-sm">{drone.location || 'Unknown'}</div>
+                        {drone.altitude && (
+                          <div className="text-xs text-gray-500">Alt: {drone.altitude}m</div>
+                        )}
                       </div>
-                      <div className="text-md">{drone.location || 'Unknown'}</div>
+                      <div className="bg-gray-900/60 p-3 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Activity className="h-4 w-4 text-blue-400" />
+                          <span className="text-sm text-gray-400">Mission</span>
+                        </div>
+                        <div className="text-sm">{drone.mission || 'None'}</div>
+                        <div className="text-xs text-gray-500">
+                          {drone.armed ? 'Armed' : 'Disarmed'}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="bg-gray-900/60 p-3 rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Clock className="h-4 w-4 text-blue-400" />
-                        <span className="text-sm text-gray-400">Last Active</span>
+                        <span className="text-sm text-gray-400">Last Telemetry</span>
                       </div>
-                      <div className="text-md">{drone.lastActive || 'Unknown'}</div>
+                      <div className="text-sm">{drone.lastActive || 'Never'}</div>
                     </div>
 
                     <div className="flex gap-2">
@@ -321,22 +487,29 @@ const DroneControlHub: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-gray-900/60 p-3 rounded-lg h-[250px]">
+                  <div className="bg-gray-900/60 p-3 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <MapPin className="h-4 w-4 text-blue-400" />
                       <span className="text-sm text-gray-400">Live Location</span>
                     </div>
-                    <div className="h-[200px]">
-                      {drone.coordinates && (
+                    <div className="h-[250px]">
+                      {drone.coordinates ? (
                         <DroneLocationMap 
                           location={{
                             lat: drone.coordinates.lat,
                             lng: drone.coordinates.lng,
                             timestamp: drone.lastActive || new Date().toISOString(),
-                            area: drone.location?.split(',')[1]?.trim() || 'Unknown Area',
-                            city: drone.location?.split(',')[0]?.trim() || 'Unknown City'
+                            area: drone.region_name || 'Unknown Region',
+                            city: drone.location?.split(',')[0]?.trim() || 'Unknown'
                           }}
                         />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-gray-500">
+                          <div className="text-center">
+                            <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm">No GPS Data</p>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
