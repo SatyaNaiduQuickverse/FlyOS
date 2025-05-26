@@ -1,4 +1,4 @@
-// components/LoginHistoryTable.tsx - FIXED FOR SUPABASE
+// components/LoginHistoryTable.tsx - FIXED UI VERSION
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -108,7 +108,6 @@ export default function LoginHistoryTable({
     }
   };
 
-  // Fetch login history from Supabase or your backend API
   const fetchLoginHistory = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -119,29 +118,6 @@ export default function LoginHistoryTable({
         return;
       }
 
-      // Option 1: If you have login history in Supabase
-      // This would require a login_history table in Supabase
-      /*
-      let query = supabase
-        .from('login_history')
-        .select('*')
-        .order('login_time', { ascending: false })
-        .range((page - 1) * limit, page * limit - 1);
-
-      // Role-based filtering
-      if (user.role !== 'MAIN_HQ' || !showAllUsers) {
-        const targetUserId = userId || user.id;
-        query = query.eq('user_id', targetUserId);
-      }
-
-      const { data, error: supabaseError, count } = await query;
-      
-      if (supabaseError) {
-        throw new Error(supabaseError.message);
-      }
-      */
-
-      // Option 2: Call your backend API (TimescaleDB)
       const queryUserId = (user?.role === 'MAIN_HQ' && showAllUsers) ? undefined : userId || user?.id;
       
       const response = await fetch(`/api/auth/login-history?page=${page}&limit=${limit}${queryUserId ? `&userId=${queryUserId}` : ''}`, {
@@ -162,7 +138,6 @@ export default function LoginHistoryTable({
       const data = await response.json();
       
       if (data.success) {
-        // Transform the data to match our interface
         const transformedHistory = data.loginHistory.map((entry: any) => ({
           id: entry.id,
           userId: entry.userId || entry.user_id,
@@ -192,7 +167,6 @@ export default function LoginHistoryTable({
         setError('Error loading login history data');
       }
       
-      // Fallback: Generate mock data for demo purposes
       const mockHistory = generateMockLoginHistory();
       setLoginHistory(mockHistory);
       setTotalEntries(mockHistory.length);
@@ -202,17 +176,15 @@ export default function LoginHistoryTable({
     }
   }, [page, limit, userId, user, showAllUsers, token]);
 
-  // Generate mock login history for demo purposes
   const generateMockLoginHistory = (): LoginHistoryEntry[] => {
     if (!user) return [];
 
     const mockEntries: LoginHistoryEntry[] = [];
     const now = new Date();
     
-    // Generate some realistic mock data
     for (let i = 0; i < Math.min(limit, 10); i++) {
-      const loginTime = new Date(now.getTime() - (i * 2 * 60 * 60 * 1000)); // Every 2 hours
-      const logoutTime = i < 3 ? null : new Date(loginTime.getTime() + (1.5 * 60 * 60 * 1000)); // 1.5 hour sessions
+      const loginTime = new Date(now.getTime() - (i * 2 * 60 * 60 * 1000));
+      const logoutTime = i < 3 ? null : new Date(loginTime.getTime() + (1.5 * 60 * 60 * 1000));
       
       mockEntries.push({
         id: `mock-${i + 1}`,
@@ -234,7 +206,7 @@ export default function LoginHistoryTable({
   useEffect(() => {
     const intervalId = setInterval(() => {
       fetchLoginHistory();
-    }, 60000); // Refresh every minute
+    }, 60000);
     
     return () => clearInterval(intervalId);
   }, [fetchLoginHistory]);
@@ -252,7 +224,8 @@ export default function LoginHistoryTable({
                         showAllUsers;
 
   return (
-    <div className="bg-gradient-to-b from-gray-900/80 to-black/80 shadow-2xl rounded-lg backdrop-blur-sm overflow-hidden border border-gray-800">
+    // REMOVED OUTER BOX - Just return the content directly
+    <div className="overflow-hidden">
       <div className="flex justify-between items-center p-5 border-b border-gray-800 bg-gradient-to-r from-blue-900/10 to-indigo-900/10">
         <div className="flex flex-col">
           <h2 className="text-xl font-light tracking-wider text-blue-300 flex items-center gap-2">

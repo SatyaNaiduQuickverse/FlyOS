@@ -1,4 +1,4 @@
-// lib/auth.tsx - COMPLETE PROFESSIONAL SUPABASE AUTH
+// lib/auth.tsx - UPDATED WITH LOGIN HISTORY SUPPORT
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loginHistoryId, setLoginHistoryId] = useState<string | null>(null);
   const router = useRouter();
 
   const clearError = useCallback(() => setError(null), []);
@@ -73,12 +74,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {
       id: authUser.id,
       username: profileData?.username || authUser.user_metadata?.username || emailUsername,
-      role: profileData?.role || authUser.user_metadata?.role || 'MAIN_HQ',
+      role: profileData?.role || authUser.user_metadata?.role || 'OPERATOR',
       regionId: profileData?.region_id || authUser.user_metadata?.region_id,
       fullName: profileData?.full_name || authUser.user_metadata?.full_name || 'User',
       email: authUser.email || '',
     };
   }, []);
+
+  // Record logout in login history
+  const recordLogout = useCallback(async () => {
+    if (!loginHistoryId || !token) return;
+    
+    try {
+      const response = await fetch('/api/auth/login-history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ loginHistoryId })
+      });
+      
+      if (response.ok) {
+        console.log('Logout recorded successfully');
+      } else {
+        console.warn('Failed to record logout');
+      }
+    } catch (error) {
+      console.warn('Error recording logout:', error);
+    }
+  }, [loginHistoryId, token]);
 
   // Initialize auth state
   useEffect(() => {
@@ -119,6 +144,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Store in localStorage for compatibility
           localStorage.setItem('flyos_user', JSON.stringify(userData));
           localStorage.setItem('flyos_token', session.access_token);
+          
+          // Try to get login history ID from localStorage
+          const storedLoginHistoryId = localStorage.getItem('flyos_login_history_id');
+          if (storedLoginHistoryId) {
+            setLoginHistoryId(storedLoginHistoryId);
+          }
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
@@ -161,10 +192,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('flyos_user', JSON.stringify(userData));
         localStorage.setItem('flyos_token', session.access_token);
       } else if (event === 'SIGNED_OUT') {
+        // Record logout before clearing state
+        await recordLogout();
+        
         setUser(null);
         setToken(null);
+        setLoginHistoryId(null);
         localStorage.removeItem('flyos_user');
         localStorage.removeItem('flyos_token');
+        localStorage.removeItem('flyos_login_history_id');
       } else if (event === 'TOKEN_REFRESHED' && session) {
         setToken(session.access_token);
         localStorage.setItem('flyos_token', session.access_token);
@@ -175,47 +211,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [createUserFromAuth]);
+  }, [createUserFromAuth, recordLogout]);
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
 
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      // Use our custom login API that records history
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (signInError) {
-        setError(signInError.message);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message || 'Login failed');
         setLoading(false);
         return false;
       }
 
-      if (data.user && data.session) {
-        // Get profile data
-        let profileData = null;
-        try {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single();
-          profileData = profile;
-        } catch (profileError) {
-          console.warn('Profile not found, using auth metadata');
-        }
-
-        const userData = createUserFromAuth(data.user, profileData);
-        setUser(userData);
-        setToken(data.session.access_token);
+      if (data.success && data.user) {
+        setUser(data.user);
+        setToken(data.token);
         
-        localStorage.setItem('flyos_user', JSON.stringify(userData));
-        localStorage.setItem('flyos_token', data.session.access_token);
+        // Store login history ID for logout tracking
+        if (data.loginHistoryId) {
+          setLoginHistoryId(data.loginHistoryId);
+          localStorage.setItem('flyos_login_history_id', data.loginHistoryId);
+        }
+        
+        localStorage.setItem('flyos_user', JSON.stringify(data.user));
+        localStorage.setItem('flyos_token', data.token);
 
         // Navigate to appropriate dashboard
-        const route = ROLE_ROUTES[userData.role];
+        const route = ROLE_ROUTES[data.user.role as keyof typeof ROLE_ROUTES];
         router.push(route);
         
         setLoading(false);
@@ -230,26 +264,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return false;
     }
-  }, [createUserFromAuth, router]);
+  }, [router]);
 
   const logout = useCallback(async () => {
     try {
+      // Record logout first
+      await recordLogout();
+      
+      // Then sign out from Supabase
       await supabase.auth.signOut();
+      
       setUser(null);
       setToken(null);
+      setLoginHistoryId(null);
       localStorage.removeItem('flyos_user');
       localStorage.removeItem('flyos_token');
+      localStorage.removeItem('flyos_login_history_id');
       router.push('/auth/login');
     } catch (error) {
       console.error('Logout error:', error);
       // Force logout anyway
       setUser(null);
       setToken(null);
+      setLoginHistoryId(null);
       localStorage.removeItem('flyos_user');
       localStorage.removeItem('flyos_token');
+      localStorage.removeItem('flyos_login_history_id');
       router.push('/auth/login');
     }
-  }, [router]);
+  }, [router, recordLogout]);
 
   const refreshSession = useCallback(async () => {
     try {
