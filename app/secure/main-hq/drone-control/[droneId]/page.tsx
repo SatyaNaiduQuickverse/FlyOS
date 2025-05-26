@@ -1,19 +1,27 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - WEBSOCKET ENABLED
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - UNIFIED CONTROL SECTION
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { 
   Plane, ArrowLeft, Signal, Battery, Activity,
-  LineChart, Settings, Globe
+  LineChart, Settings, Globe, Wifi, WifiOff,
+  RefreshCw, AlertTriangle, Camera, MapPin,
+  Package, Sliders, Upload
 } from 'lucide-react';
 import { useAuth } from '../../../../../lib/auth';
 import { useDroneState } from '../../../../../lib/hooks/useDroneState';
+
+// Import ALL components
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
 import DetailedTelemetry from '../../../../../components/DroneControl/DetailedTelemetry';
 import DroneSettings from '../../../../../components/DroneControl/DroneSettings';
-import FinalCombinedControl from '../../../../../components/DroneControl/FinalCombinedControl';
+import CameraFeed from '../../../../../components/DroneControl/CameraFeed';
+import DronePWMControl from '../../../../../components/DroneControl/DronePWMControl';
+import WaypointDropbox from '../../../../../components/DroneControl/WaypointDropbox';
+import DronePayload from '../../../../../components/DroneControl/DronePayload';
+import DroneMap from '../../../../../components/DroneControl/DroneMap';
 
 export default function DroneControlPage() {
   const router = useRouter();
@@ -23,7 +31,7 @@ export default function DroneControlPage() {
   
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Use the WebSocket-enabled hook for real-time drone state
+  // Use the fixed WebSocket-enabled hook
   const { 
     drone, 
     isLoading, 
@@ -31,57 +39,98 @@ export default function DroneControlPage() {
     isConnected,
     latency,
     lastUpdate,
-    sendCommand 
+    sendCommand,
+    refreshDrone
   } = useDroneState({
     droneId: droneId as string,
     token,
     initialFetch: true
   });
 
+  const handleManualRefresh = async () => {
+    try {
+      await refreshDrone();
+    } catch (err) {
+      console.error('Manual refresh failed:', err);
+    }
+  };
+
   const handleReturnToDashboard = () => {
     router.push('/secure/main-hq/dashboard');
   };
 
+  // Format latency with color coding
+  const formatLatency = (lat: number | null) => {
+    if (lat === null) return { value: 'Unknown', color: 'text-gray-400', status: 'Unknown' };
+    if (lat < 50) return { value: `${lat}ms`, color: 'text-green-400', status: 'Excellent' };
+    if (lat < 100) return { value: `${lat}ms`, color: 'text-yellow-400', status: 'Good' };
+    if (lat < 300) return { value: `${lat}ms`, color: 'text-orange-400', status: 'Fair' };
+    return { value: `${lat}ms`, color: 'text-red-400', status: 'Poor' };
+  };
+
+  const latencyInfo = formatLatency(latency);
+
   // Show loading state
-  if (isLoading) {
+  if (isLoading && !drone) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin h-10 w-10 border-4 border-blue-500 border-t-transparent rounded-full mb-4"></div>
-          <div className="text-white">Establishing real-time connection to drone {droneId}...</div>
-          <div className="text-gray-400 text-sm mt-2">Connecting to WebSocket...</div>
+          <div className="text-white">Connecting to drone {droneId}...</div>
+          <div className="text-gray-400 text-sm mt-2">Establishing connection...</div>
         </div>
       </div>
     );
   }
 
   // Show error state
-  if (error) {
+  if (error && !drone) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center max-w-md">
+          <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <div className="text-red-500 text-xl mb-4">Connection Error</div>
-          <div className="text-white mb-6">{error}</div>
-          <button 
-            onClick={handleReturnToDashboard}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg"
-          >
-            Return to Dashboard
-          </button>
+          <div className="text-white mb-6 bg-gray-800 p-4 rounded-lg">{error}</div>
+          <div className="space-y-3">
+            <button 
+              onClick={handleManualRefresh}
+              className="w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span>Retrying...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Retry Connection</span>
+                </>
+              )}
+            </button>
+            <button 
+              onClick={handleReturnToDashboard}
+              className="w-full px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
+            >
+              Return to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   // Show not found state
-  if (!drone) {
+  if (!drone && !isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-white text-xl">Drone not found</div>
+          <Plane className="h-16 w-16 text-gray-500 mx-auto mb-4" />
+          <div className="text-white text-xl mb-4">Drone not found</div>
           <button 
             onClick={handleReturnToDashboard}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg"
+            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg"
           >
             Return to Dashboard
           </button>
@@ -110,58 +159,99 @@ export default function DroneControlPage() {
                   <h1 className="text-2xl tracking-wide font-light">DRONE CONTROL SYSTEM</h1>
                 </div>
                 <div className="text-sm text-gray-400">
-                  Drone ID: <span className="text-blue-300">{drone.id}</span> | 
-                  Model: <span className="text-blue-300">{drone.model || 'Unknown'}</span> | 
-                  Status: <span className="text-blue-300">{drone.status || (drone.connected ? 'ACTIVE' : 'OFFLINE')}</span>
+                  Drone ID: <span className="text-blue-300">{drone?.id}</span> | 
+                  Model: <span className="text-blue-300">{drone?.model || 'Unknown'}</span> | 
+                  Status: <span className="text-blue-300">{drone?.status || (drone?.connected ? 'ACTIVE' : 'OFFLINE')}</span>
                 </div>
               </div>
             </div>
             
             <div className="flex items-center gap-5">
+              {/* Battery indicator */}
               <div className="flex items-center gap-2">
-                <Battery className={`h-5 w-5 ${drone.percentage && drone.percentage > 70 ? 'text-blue-500' : drone.percentage && drone.percentage > 30 ? 'text-amber-500' : 'text-rose-500'}`} />
-                <span className="text-white">{drone.percentage || 0}%</span>
+                <Battery className={`h-5 w-5 ${
+                  drone?.percentage && drone.percentage > 70 ? 'text-green-500' : 
+                  drone?.percentage && drone.percentage > 30 ? 'text-amber-500' : 'text-red-500'
+                }`} />
+                <span className="text-white">{drone?.percentage || 0}%</span>
               </div>
               
+              {/* Connection indicator */}
               <div className="flex items-center gap-2">
-                <Signal className={`h-5 w-5 ${isConnected ? 'text-blue-500' : 'text-red-500'}`} />
-                <span className="text-white">{isConnected ? 'Live' : 'Disconnected'}</span>
-                {isConnected && (
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                {isConnected ? (
+                  <>
+                    <Wifi className="h-5 w-5 text-green-500" />
+                    <span className="text-green-400">Live</span>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-5 w-5 text-red-500" />
+                    <span className="text-red-400">Offline</span>
+                  </>
                 )}
               </div>
               
-              {/* Live Mission Indicator */}
+              {/* Manual refresh button */}
+              <button
+                onClick={handleManualRefresh}
+                disabled={isLoading}
+                className="p-2 bg-gray-800/60 hover:bg-gray-800 border border-gray-700 rounded-lg transition-colors"
+                title="Manual Refresh"
+              >
+                <RefreshCw className={`h-4 w-4 text-gray-300 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+              
+              {/* Flight mode indicator */}
               <div className="bg-blue-900/30 px-3 py-1 rounded-lg border border-blue-500/30">
-                <span className="text-sm font-light text-blue-300 tracking-wider">{drone.flight_mode || 'UNKNOWN'}</span>
+                <span className="text-sm font-light text-blue-300 tracking-wider">
+                  {drone?.flight_mode || 'UNKNOWN'}
+                </span>
               </div>
             </div>
           </div>
         </div>
       </header>
       
-      {/* Real-time connection info */}
+      {/* Connection status bar */}
       <div className="bg-gray-900/60 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6 lg:px-8 text-xs text-gray-400 flex justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6 lg:px-8 text-xs text-gray-400 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <div>
-              WebSocket: <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
-                {isConnected ? 'Connected' : 'Disconnected'}
+            <div className="flex items-center gap-2">
+              <span>Connection:</span>
+              <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
+                {isConnected ? 'WebSocket Active' : 'API Polling'}
               </span>
             </div>
+            
             {lastUpdate && (
-              <div>
-                Last update: {lastUpdate.toLocaleTimeString()}
+              <div className="flex items-center gap-2">
+                <span>Last update:</span>
+                <span className="text-white">{lastUpdate.toLocaleTimeString()}</span>
+              </div>
+            )}
+            
+            {latency !== null && (
+              <div className="flex items-center gap-2">
+                <span>Response time:</span>
+                <span className={latencyInfo.color} title={`${latencyInfo.status} connection quality`}>
+                  {latencyInfo.value}
+                </span>
               </div>
             )}
           </div>
-          <div>
-            Latency: {latency !== null ? `${latency}ms` : 'Unknown'}
-          </div>
+          
+          {/* Error indicator */}
+          {error && (
+            <div className="flex items-center gap-2 text-red-400">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="truncate max-w-md">{error}</span>
+            </div>
+          )}
         </div>
       </div>
       
-      {/* Tabs */}
+      {/* Simplified Tabs */}
       <div className="bg-gray-900/60 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex overflow-x-auto py-1 no-scrollbar">
@@ -175,6 +265,7 @@ export default function DroneControlPage() {
               <Activity className="h-4 w-4" />
               DASHBOARD
             </button>
+            
             <button 
               onClick={() => setActiveTab('control')}
               className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
@@ -185,6 +276,7 @@ export default function DroneControlPage() {
               <Globe className="h-4 w-4" />
               CONTROL CENTER
             </button>
+            
             <button 
               onClick={() => setActiveTab('telemetry')}
               className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
@@ -195,6 +287,7 @@ export default function DroneControlPage() {
               <LineChart className="h-4 w-4" />
               TELEMETRY
             </button>
+            
             <button 
               onClick={() => setActiveTab('settings')}
               className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
@@ -211,7 +304,8 @@ export default function DroneControlPage() {
       
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        {activeTab === 'dashboard' && (
+        {/* DASHBOARD TAB */}
+        {activeTab === 'dashboard' && drone && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1">
               <DroneInfoPanel drone={drone} />
@@ -222,21 +316,40 @@ export default function DroneControlPage() {
           </div>
         )}
         
-        {activeTab === 'control' && (
+        {/* UNIFIED CONTROL CENTER TAB */}
+        {activeTab === 'control' && drone && (
           <div className="space-y-6">
-            <FinalCombinedControl 
-              drone={drone} 
-              onSendCommand={sendCommand} 
-              connected={isConnected}
-            />
+            {/* Camera Feed - No wrapper box */}
+            <CameraFeed drone={drone} isControlEnabled={isConnected} />
+
+            {/* Control Grid - 2x2 Layout - No wrapper boxes */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Map - No wrapper box */}
+              <div className="h-[400px] rounded-lg overflow-hidden">
+                <DroneMap className="w-full h-full" />
+              </div>
+
+              {/* Payload - No wrapper box */}
+              <DronePayload />
+
+              {/* PWM Control - No wrapper box */}
+              <DronePWMControl />
+
+              {/* Waypoint - No wrapper box */}
+              <div className="flex justify-center">
+                <WaypointDropbox />
+              </div>
+            </div>
           </div>
         )}
         
+        {/* TELEMETRY TAB */}
         {activeTab === 'telemetry' && (
-          <DetailedTelemetry drone={drone} />
+          <DetailedTelemetry droneId={droneId as string} />
         )}
         
-        {activeTab === 'settings' && (
+        {/* SETTINGS TAB */}
+        {activeTab === 'settings' && drone && (
           <DroneSettings 
             drone={drone} 
             onSendCommand={sendCommand} 

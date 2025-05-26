@@ -1,15 +1,16 @@
-// services/drone-db-service/src/middleware/supabase-auth.ts
+// services/drone-db-service/src/middleware/supabase-auth.ts - CLEANED VERSION
 import { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { logger } from '../utils/logger';
 import { pool } from '../database';
 
+// PURE Supabase client - ONLY authentication method
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Clean type declaration - only define it once
+// Clean type declaration
 declare global {
   namespace Express {
     interface Request {
@@ -26,23 +27,31 @@ declare global {
   }
 }
 
+/**
+ * PURE Supabase Authentication Middleware
+ * No fallbacks, no JWT verification, no auth service calls
+ */
 export const authenticateSupabase = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     
     if (!authHeader?.startsWith('Bearer ')) {
       logger.warn('No authorization header provided');
-      return res.status(401).json({ success: false, message: 'No token provided' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'No token provided' 
+      });
     }
     
     const token = authHeader.substring(7);
-    logger.debug('Attempting to verify Supabase token');
+    logger.debug('Verifying Supabase token for API request');
     
-    // Verify token with Supabase
+    // STEP 1: Verify token with Supabase - ONLY method
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
     if (error) {
       logger.warn('Supabase token verification failed:', error.message);
+      
       if (error.message.includes('expired') || error.message.includes('JWT')) {
         return res.status(401).json({ 
           success: false, 
@@ -50,19 +59,27 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
           code: 'TOKEN_EXPIRED'
         });
       }
-      return res.status(401).json({ success: false, message: 'Invalid token' });
+      
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid token' 
+      });
     }
     
     if (!user) {
       logger.warn('No user found in Supabase token');
-      return res.status(401).json({ success: false, message: 'Invalid token' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid token' 
+      });
     }
     
     logger.debug(`Supabase user verified: ${user.id} (${user.email})`);
     
-    // Get user profile from local database
+    // STEP 2: Get/Create user profile in local database
     let profile = null;
     try {
+      // Try to get existing profile
       const { rows } = await pool.query(
         'SELECT * FROM profiles WHERE id = $1',
         [user.id]
@@ -72,19 +89,20 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
         profile = rows[0];
         logger.debug(`Profile found: ${profile.username} (${profile.role})`);
       } else {
-        // Profile not found in local DB, create it from Supabase user metadata
+        // Create profile from Supabase user data
         logger.info(`Creating profile for new user: ${user.id}`);
         
         const userData = user.user_metadata || {};
         const newProfile = {
           id: user.id,
           username: userData.username || user.email?.split('@')[0] || 'user',
-          role: userData.role || 'MAIN_HQ',  // Default to MAIN_HQ for now
+          role: userData.role || 'OPERATOR',  // Default role
           region_id: userData.region_id || null,
           full_name: userData.full_name || 'User',
           email: user.email
         };
         
+        // Insert with conflict resolution
         const { rows: insertedRows } = await pool.query(
           `INSERT INTO profiles (id, username, role, region_id, full_name, email) 
            VALUES ($1, $2, $3, $4, $5, $6) 
@@ -93,13 +111,15 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
              role = EXCLUDED.role,
              region_id = EXCLUDED.region_id,
              full_name = EXCLUDED.full_name,
-             email = EXCLUDED.email
+             email = EXCLUDED.email,
+             updated_at = NOW()
            RETURNING *`,
-          [newProfile.id, newProfile.username, newProfile.role, newProfile.region_id, newProfile.full_name, newProfile.email]
+          [newProfile.id, newProfile.username, newProfile.role, 
+           newProfile.region_id, newProfile.full_name, newProfile.email]
         );
         
         profile = insertedRows[0];
-        logger.info(`Profile created successfully for user: ${profile.username}`);
+        logger.info(`Profile created: ${profile.username} (${profile.role})`);
       }
     } catch (profileError) {
       logger.error('Error fetching/creating user profile:', profileError);
@@ -109,7 +129,7 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
       });
     }
     
-    // Set user in request with complete profile data
+    // STEP 3: Set user in request
     req.user = {
       id: user.id,
       role: profile.role,
@@ -120,10 +140,14 @@ export const authenticateSupabase = async (req: Request, res: Response, next: Ne
       ...profile
     };
     
-    logger.debug(`User authenticated successfully: ${profile.username} (${profile.role})`);
+    logger.debug(`API authentication successful: ${profile.username} (${profile.role})`);
     next();
+    
   } catch (error) {
     logger.error('Supabase authentication error:', error);
-    return res.status(500).json({ success: false, message: 'Authentication failed' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Authentication failed' 
+    });
   }
 };

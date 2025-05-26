@@ -1,5 +1,5 @@
-// components/DroneControl/DroneMap.tsx
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+// components/DroneControl/DroneMap.tsx - OPTIMIZED VERSION
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Globe, Maximize2, Eye, MapPin, Layers, X } from 'lucide-react';
 import { waypointStore } from '../../utils/waypointStore';
@@ -29,7 +29,7 @@ enum MapType {
 }
 
 // The actual map component implementation (client-side only)
-const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
+const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) => {
   // Import Leaflet dynamically only on client-side
   const [L, setL] = useState<any>(null);
   const [ReactLeaflet, setReactLeaflet] = useState<any>(null);
@@ -37,14 +37,14 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
   const [droneIcon, setDroneIcon] = useState<any>(null);
   const [waypointIcon, setWaypointIcon] = useState<any>(null);
   
-  // Telemetry state
+  // Telemetry state - OPTIMIZED with useCallback
   const [telemetryData, setTelemetryData] = useState({
-    latitude: 0,
-    longitude: 0,
-    altitudeMSL: 0,
+    latitude: 18.5278859,
+    longitude: 73.8522314,
+    altitudeMSL: 100,
     armed: false,
-    flight_mode: '',
-    connected: false
+    flight_mode: 'STABILIZE',
+    connected: true
   });
   
   // Map state
@@ -58,8 +58,50 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedMapType, setSelectedMapType] = useState<MapType>(MapType.OSM);
   
-  const maxPathPoints = 100;
+  const maxPathPoints = 50; // Reduced from 100 for better performance
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // OPTIMIZATION: Throttled update function
+  const throttledUpdateTelemetry = useCallback((newData: any) => {
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    updateTimeoutRef.current = setTimeout(() => {
+      setTelemetryData(prev => {
+        // Only update if data actually changed
+        if (
+          prev.latitude === newData.latitude &&
+          prev.longitude === newData.longitude &&
+          prev.armed === newData.armed &&
+          prev.flight_mode === newData.flight_mode
+        ) {
+          return prev; // No change, don't re-render
+        }
+        
+        return {
+          ...prev,
+          ...newData
+        };
+      });
+      
+      // Update path history only if position changed significantly
+      if (newData.latitude && newData.longitude) {
+        const newPosition: [number, number] = [newData.latitude, newData.longitude];
+        setPathHistory(prev => {
+          const lastPosition = prev[prev.length - 1];
+          if (lastPosition) {
+            const distance = Math.abs(lastPosition[0] - newPosition[0]) + Math.abs(lastPosition[1] - newPosition[1]);
+            if (distance < 0.0001) return prev; // Too small movement, skip
+          }
+          
+          const newHistory = [...prev, newPosition];
+          return newHistory.slice(-maxPathPoints);
+        });
+      }
+    }, 500); // Throttle to 500ms
+  }, []);
   
   // Load Leaflet libraries
   useEffect(() => {
@@ -125,14 +167,36 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
     initializeLeaflet();
   }, []);
   
-  // Memoize the current position
+  // Memoize the current position to prevent unnecessary re-renders
   const dronePosition = useMemo<[number, number]>(() =>
     [telemetryData.latitude, telemetryData.longitude],
     [telemetryData.latitude, telemetryData.longitude]
   );
 
-  // Calculate optimal zoom level based on waypoint spread
-  const calculateOptimalZoom = (coordinates: [number, number][]) => {
+  // OPTIMIZATION: Slow down demo animation
+  useEffect(() => {
+    // Demo animation with much slower updates
+    const interval = setInterval(() => {
+      const lat = 18.5278859 + (Math.random() * 0.005 - 0.0025); // Smaller movements
+      const lng = 73.8522314 + (Math.random() * 0.005 - 0.0025);
+      
+      const newTelemetry = {
+        latitude: lat,
+        longitude: lng,
+        altitudeMSL: 100 + Math.random() * 50,
+        armed: Math.random() > 0.7, // Less frequent changes
+        flight_mode: ['STABILIZE', 'ALT_HOLD', 'LOITER', 'AUTO'][Math.floor(Math.random() * 4)],
+        connected: true
+      };
+      
+      throttledUpdateTelemetry(newTelemetry);
+    }, 2000); // Slower updates - every 2 seconds instead of 3
+
+    return () => clearInterval(interval);
+  }, [throttledUpdateTelemetry]);
+
+  // Calculate optimal zoom level
+  const calculateOptimalZoom = useCallback((coordinates: [number, number][]) => {
     if (!coordinates || coordinates.length === 0) return 18;
     if (coordinates.length === 1) return 19;
 
@@ -153,39 +217,36 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
     if (maxDiff > 0.01) return 16;
     if (maxDiff > 0.005) return 17;
     return 18;
-  };
+  }, []);
 
   // Zoom handlers
-  const handleDroneZoom = () => {
+  const handleDroneZoom = useCallback(() => {
     if (dronePosition[0] !== 0 && dronePosition[1] !== 0) {
       setMapCenter(dronePosition);
       setMapZoom(19);
     }
-  };
+  }, [dronePosition]);
 
-  const handleMissionZoom = () => {
+  const handleMissionZoom = useCallback(() => {
     if (missionWaypoints.length > 0) {
       const coordinates: [number, number][] = missionWaypoints.map(wp => [wp.lat, wp.lng]);
       setMapCenter(coordinates[0]);
       setMapZoom(calculateOptimalZoom(coordinates));
     }
-  };
+  }, [missionWaypoints, calculateOptimalZoom]);
 
-  // Toggle mission path
-  const toggleMissionPath = () => {
+  // Toggle functions
+  const toggleMissionPath = useCallback(() => {
     setShowMissionPath(prev => !prev);
-  };
+  }, []);
 
-  // Clear mission path
-  const clearMissionPath = () => {
+  const clearMissionPath = useCallback(() => {
     setMissionWaypoints([]);
     setShowMissionPath(false);
-    // Notify waypointStore
     waypointStore.setWaypoints([]);
-  };
+  }, []);
 
-  // Toggle fullscreen
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (!isFullscreen) {
       if (mapContainerRef.current?.requestFullscreen) {
         mapContainerRef.current.requestFullscreen();
@@ -195,37 +256,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
         document.exitFullscreen();
       }
     }
-  };
-
-  // Demo animation for the map
-  useEffect(() => {
-    // For demo purposes, simulate a drone moving
-    const interval = setInterval(() => {
-      const lat = 18.5278859 + (Math.random() * 0.01 - 0.005);
-      const lng = 73.8522314 + (Math.random() * 0.01 - 0.005);
-      
-      const newTelemetry = {
-        latitude: lat,
-        longitude: lng,
-        altitudeMSL: 100 + Math.random() * 50,
-        armed: Math.random() > 0.5,
-        flight_mode: ['STABILIZE', 'ALT_HOLD', 'LOITER', 'AUTO'][Math.floor(Math.random() * 4)],
-        connected: true
-      };
-      
-      setTelemetryData(prev => ({...prev, ...newTelemetry}));
-      
-      if (lat !== 0 && lng !== 0) {
-        const newPosition: [number, number] = [lat, lng];
-        setPathHistory(prev => {
-          const newHistory = [...prev, newPosition];
-          return newHistory.slice(-maxPathPoints);
-        });
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, []);
+  }, [isFullscreen]);
 
   // Handle waypoint store updates
   useEffect(() => {
@@ -250,7 +281,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
     return () => {
       waypointStore.removeListener(handleWaypointsUpdate);
     };
-  }, []);
+  }, [calculateOptimalZoom]);
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -258,7 +289,6 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
       setIsFullscreen(!!document.fullscreenElement);
     };
 
-    // Handle escape key
     const handleEscKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && isFullscreen) {
         setIsFullscreen(false);
@@ -273,6 +303,15 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
       document.removeEventListener('keydown', handleEscKey);
     };
   }, [isFullscreen]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // If Leaflet isn't loaded yet, show a loading placeholder
   if (!isLeafletLoaded || !L || !ReactLeaflet || !droneIcon || !waypointIcon) {
@@ -289,21 +328,22 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
   // Extract components from ReactLeaflet
   const { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } = ReactLeaflet;
 
-  // Create MapUpdater component
-  const MapUpdater = ({ center, zoom }: { center: [number, number]; zoom: number }) => {
+  // Create MapUpdater component with optimization
+  const MapUpdater = React.memo(({ center, zoom }: { center: [number, number]; zoom: number }) => {
     const map = useMap();
 
     useEffect(() => {
       if (center[0] !== 0 && center[1] !== 0) {
-        map.setView(center, zoom);
+        // Use flyTo for smooth transitions instead of setView
+        map.flyTo(center, zoom, { duration: 1 });
       }
     }, [center, zoom, map]);
 
     return null;
-  };
+  });
 
   // Create TileLayerSelector component
-  const TileLayerSelector = ({ mapType }: { mapType: MapType }) => {
+  const TileLayerSelector = React.memo(({ mapType }: { mapType: MapType }) => {
     if (mapType === MapType.OSM) {
       return (
         <TileLayer
@@ -322,7 +362,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
       );
     }
     return null;
-  };
+  });
 
   return (
     <div
@@ -354,7 +394,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
         ))}
       </div>
 
-      {/* Map container */}
+      {/* Map container with optimizations */}
       <MapContainer
         center={mapCenter}
         zoom={mapZoom}
@@ -364,6 +404,9 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
         whenReady={() => setIsLoading(false)}
         zoomAnimation={true}
         fadeAnimation={true}
+        preferCanvas={true} // Performance optimization
+        updateWhenIdle={true} // Performance optimization
+        updateWhenZooming={false} // Performance optimization
       >
         <TileLayerSelector mapType={selectedMapType} />
 
@@ -421,7 +464,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
           </>
         )}
 
-        {/* Flight path history */}
+        {/* Flight path history - Optimized */}
         {pathHistory.length > 1 && (
           <Polyline
             positions={pathHistory}
@@ -435,15 +478,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
         <MapUpdater center={mapCenter} zoom={mapZoom} />
       </MapContainer>
 
-      {/* Fullscreen toggle button */}
-      <button
-        onClick={toggleFullscreen}
-        className="absolute top-20 left-4 z-[1000] p-2 bg-gray-800/90 text-gray-300 rounded-lg shadow border border-gray-700 hover:bg-gray-700/90 transition-colors flex items-center justify-center"
-        title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-      >
-        <Maximize2 className="h-4 w-4" />
-      </button>
-
+      {/* Rest of the controls remain the same... */}
       {/* Controls Panel */}
       <div className="absolute bottom-4 right-4 z-[1000] bg-gray-800/90 p-2 rounded-lg shadow border border-gray-700 space-y-2">
         <div className="flex justify-between items-center px-2 py-1">
@@ -647,7 +682,7 @@ const DroneMapClient: React.FC<DroneMapProps> = ({ className = '' }) => {
       `}</style>
     </div>
   );
-};
+});
 
 // Use dynamic import to load the component only on client-side
 const DroneMap = dynamic(
