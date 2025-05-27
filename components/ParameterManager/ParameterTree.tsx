@@ -79,7 +79,7 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
   };
 
   return (
-    <div className="bg-gray-900/80 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+    <div className="bg-gray-900/80 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800 relative z-10">
       <div className="p-4 border-b border-gray-800">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-medium text-gray-300">PARAMETER TREE</h4>
@@ -91,7 +91,7 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
         </div>
       </div>
 
-      <div className="overflow-y-visible">
+      <div className="overflow-y-auto max-h-[800px]">
         {filteredData.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             <div className="text-lg mb-2">No parameters found</div>

@@ -141,7 +141,7 @@ const ParameterSearch: React.FC<ParameterSearchProps> = ({
   }, [searchQuery, parameterData]);
 
   return (
-    <div className="space-y-4 flex-1">
+    <div className="space-y-4 flex-1 relative z-20">
       
       {/* Search Input */}
       <div className="relative">
@@ -168,7 +168,7 @@ const ParameterSearch: React.FC<ParameterSearchProps> = ({
 
         {/* Search Suggestions */}
         {showSuggestions && suggestions.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-[1000] max-h-64 overflow-y-auto">
             {suggestions.map((suggestion, index) => (
               <button
                 key={`${suggestion.type}-${suggestion.text}-${index}`}

@@ -1,5 +1,6 @@
-// components/ParameterManager/ChangesModal.tsx - NEW COMPONENT
+// components/ParameterManager/ChangesModal.tsx - WITH PORTAL FIX
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { FileText, X, RefreshCw, Save } from 'lucide-react';
 import { Parameter } from './types';
 import { PARAMETER_CATEGORIES } from './parameterData';
@@ -51,9 +52,24 @@ const ChangesModal: React.FC<ChangesModalProps> = ({
     return true;
   };
 
+  // Modal Portal Component
+  const ModalPortal: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (typeof document === 'undefined') return null;
+    
+    return createPortal(
+      <div 
+        className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center"
+        style={{ zIndex: 999999 }}
+      >
+        {children}
+      </div>,
+      document.body
+    );
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[99999]">
-      <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 w-full max-w-4xl max-h-[80vh] overflow-hidden shadow-2xl relative z-[100000]">
+    <ModalPortal>
+      <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 w-full max-w-4xl max-h-[80vh] overflow-hidden shadow-2xl mx-4">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
             <FileText className="h-5 w-5 text-amber-400" />
@@ -204,7 +220,7 @@ const ChangesModal: React.FC<ChangesModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

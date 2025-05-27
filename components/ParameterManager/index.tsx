@@ -243,7 +243,7 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       {/* Header */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex justify-between items-center mb-4">
@@ -300,17 +300,62 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
         )}
       </div>
 
+      {/* Parameter Statistics */}
+      <div className="bg-gray-900/80 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800 p-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="text-center">
+            <div className="text-2xl font-light text-blue-400">
+              {parameterData.reduce((total, cat) => 
+                total + cat.subcategories.reduce((subTotal, sub) => subTotal + sub.parameters.length, 0), 0
+              )}
+            </div>
+            <div className="text-sm text-gray-400 mt-1">Total Parameters</div>
+          </div>
+          
+          <div className="text-center">
+            <div className="text-2xl font-light text-amber-400">{modifiedParameters.length}</div>
+            <div className="text-sm text-gray-400 mt-1">Modified</div>
+          </div>
+          
+          <div className="text-center">
+            <div className="text-2xl font-light text-green-400">{parameterData.length}</div>
+            <div className="text-sm text-gray-400 mt-1">Categories</div>
+          </div>
+          
+          <div className="text-center">
+            <div className="text-2xl font-light text-purple-400">
+              {parameterData.reduce((total, cat) => total + cat.subcategories.length, 0)}
+            </div>
+            <div className="text-sm text-gray-400 mt-1">Sections</div>
+          </div>
+        </div>
+        
+        {searchQuery && (
+          <div className="mt-4 pt-4 border-t border-gray-800">
+            <div className="text-sm text-gray-400">
+              Search Results: <span className="text-blue-300">
+                {filteredData.reduce((total, cat) => 
+                  total + cat.subcategories.reduce((subTotal, sub) => subTotal + sub.parameters.length, 0), 0
+                )} parameters
+              </span> matching "{searchQuery}"
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Parameter Tree */}
-      <ParameterTree 
-        filteredData={filteredData}
-        onToggleCategory={handleToggleCategory}
-        onToggleSubcategory={handleToggleSubcategory}
-        onUpdateParameter={handleUpdateParameter}
-        isControlEnabled={isControlEnabled}
-        searchQuery={searchQuery}
-        parameterData={parameterData}
-        setParameterData={setParameterData}
-      />
+      <div className="relative z-0">
+        <ParameterTree 
+          filteredData={filteredData}
+          onToggleCategory={handleToggleCategory}
+          onToggleSubcategory={handleToggleSubcategory}
+          onUpdateParameter={handleUpdateParameter}
+          isControlEnabled={isControlEnabled}
+          searchQuery={searchQuery}
+          parameterData={parameterData}
+          setParameterData={setParameterData}
+        />
+      </div>
 
       {/* Changes Modal */}
       {showChangesModal && (
@@ -371,7 +416,7 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
 
       {/* Notification */}
       {notification && (
-        <div className={`fixed top-4 right-4 p-4 rounded-lg border backdrop-blur-sm z-[10000] flex items-center gap-2 ${
+        <div className={`fixed top-4 right-4 p-4 rounded-lg border backdrop-blur-sm z-[100000] flex items-center gap-2 ${
           notification.type === 'success' 
             ? 'bg-green-900/80 border-green-500/30 text-green-300'
             : 'bg-red-900/80 border-red-500/30 text-red-300'
