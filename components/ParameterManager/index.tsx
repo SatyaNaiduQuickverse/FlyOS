@@ -1,4 +1,4 @@
-// components/ParameterManager/index.tsx - MAIN COMPONENT (UPDATED WITH FIXES)
+// components/ParameterManager/index.tsx - FIXED MAIN COMPONENT
 import React, { useState, useCallback, useMemo } from 'react';
 import { 
   Settings, AlertTriangle, CheckCircle, X
@@ -22,8 +22,19 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Real ArduPilot parameter data from Google AI Studio
-  const [parameterData, setParameterData] = useState<ParameterCategory[]>(PARAMETER_CATEGORIES);
+  // Initialize parameter data with proper structure
+  const [parameterData, setParameterData] = useState<ParameterCategory[]>(() => 
+    PARAMETER_CATEGORIES.map(category => ({
+      ...category,
+      subcategories: category.subcategories.map(subcategory => ({
+        ...subcategory,
+        parameters: subcategory.parameters.map(param => ({
+          ...param,
+          modified: false
+        }))
+      }))
+    }))
+  );
 
   // Get all modified parameters
   const modifiedParameters = useMemo(() => {
@@ -137,14 +148,17 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
     setHasUnsavedChanges(true);
   }, [searchQuery, filteredData]);
 
-  // Handle parameter import
+  // Handle parameter import - update parameter tree only
   const handleImportParameters = useCallback((parameters: any[]) => {
     let importedCount = 0;
+    let updatedCount = 0;
     
     setParameterData(prev => {
       const newData = [...prev];
       
       parameters.forEach(({ name: paramName, value: paramValue }) => {
+        let found = false;
+        
         // Find and update the parameter
         for (let catIndex = 0; catIndex < newData.length; catIndex++) {
           for (let subIndex = 0; subIndex < newData[catIndex].subcategories.length; subIndex++) {
@@ -153,27 +167,49 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
             );
             
             if (paramIndex !== -1) {
-              const numValue = parseFloat(paramValue);
-              newData[catIndex].subcategories[subIndex].parameters[paramIndex] = {
-                ...newData[catIndex].subcategories[subIndex].parameters[paramIndex],
-                value: isNaN(numValue) ? paramValue : numValue,
-                modified: true
-              };
+              const currentParam = newData[catIndex].subcategories[subIndex].parameters[paramIndex];
+              const numValue = typeof paramValue === 'number' ? paramValue : parseFloat(paramValue);
+              const finalValue = isNaN(numValue) ? paramValue : numValue;
+              
+              // Check if value actually changed
+              if (currentParam.value !== finalValue) {
+                newData[catIndex].subcategories[subIndex].parameters[paramIndex] = {
+                  ...currentParam,
+                  value: finalValue,
+                  modified: true
+                };
+                updatedCount++;
+              }
+              
+              found = true;
               importedCount++;
               break;
             }
           }
+          if (found) break;
         }
       });
       
       return newData;
     });
     
-    setHasUnsavedChanges(true);
-    setNotification({ 
-      type: 'success', 
-      message: `Imported ${importedCount} parameters` 
-    });
+    if (updatedCount > 0) {
+      setHasUnsavedChanges(true);
+    }
+    
+    // Show notification with results
+    if (importedCount > 0) {
+      setNotification({ 
+        type: 'success', 
+        message: `Import completed: ${importedCount} parameters processed, ${updatedCount} values updated`
+      });
+    } else {
+      setNotification({ 
+        type: 'error', 
+        message: 'No matching parameters found in the current parameter set'
+      });
+    }
+    
     setTimeout(() => setNotification(null), 5000);
   }, []);
 
@@ -196,7 +232,9 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
     const a = document.createElement('a');
     a.href = url;
     a.download = `${droneId}_parameters.${format}`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
     setNotification({ 
@@ -206,10 +244,13 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
     setTimeout(() => setNotification(null), 3000);
   }, [parameterData, droneId]);
 
-  // Upload to drone
+  // Upload to drone - placeholder for future implementation
   const handleUploadToDrone = useCallback(() => {
     if (!isControlEnabled) {
-      setNotification({ type: 'error', message: 'Control not enabled - cannot upload parameters' });
+      setNotification({ 
+        type: 'error', 
+        message: 'Control not enabled - cannot upload parameters' 
+      });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
@@ -220,27 +261,48 @@ const ParameterManager: React.FC<ParameterManagerProps> = ({ droneId, isControlE
       .filter(param => param.modified);
     
     if (modifiedParams.length === 0) {
-      setNotification({ type: 'error', message: 'No modified parameters to upload' });
+      setNotification({ 
+        type: 'error', 
+        message: 'No modified parameters to upload' 
+      });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
     
-    console.log(`Uploading ${modifiedParams.length} modified parameters to drone ${droneId}:`, modifiedParams);
+    // Placeholder for drone communication
+    console.log(`Would upload ${modifiedParams.length} modified parameters to drone ${droneId}:`, modifiedParams);
     
     setNotification({ 
       type: 'success', 
-      message: `Parameter upload initiated: ${modifiedParams.length} parameters (placeholder)` 
+      message: `Parameter upload initiated: ${modifiedParams.length} parameters (drone communication not implemented yet)` 
     });
     setTimeout(() => setNotification(null), 3000);
   }, [droneId, isControlEnabled, parameterData]);
 
   // Reset all changes
   const handleResetAllChanges = useCallback(() => {
-    setParameterData(PARAMETER_CATEGORIES);
+    setParameterData(PARAMETER_CATEGORIES.map(category => ({
+      ...category,
+      subcategories: category.subcategories.map(subcategory => ({
+        ...subcategory,
+        parameters: subcategory.parameters.map(param => ({
+          ...param,
+          modified: false
+        }))
+      }))
+    })));
     setHasUnsavedChanges(false);
     setNotification({ type: 'success', message: 'All changes have been reset' });
     setTimeout(() => setNotification(null), 3000);
   }, []);
+
+  // Clear notification after timeout
+  React.useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   return (
     <div className="space-y-6 relative">

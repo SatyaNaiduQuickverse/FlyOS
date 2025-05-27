@@ -1,5 +1,5 @@
-// components/ParameterManager/ImportExport.tsx - DEBUG VERSION
-import React, { useState, useCallback } from 'react';
+// components/ParameterManager/ImportExport.tsx - FIXED VERSION
+import React, { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Upload, Download, X, CheckCircle, AlertTriangle, FileText, Save, Loader2 } from 'lucide-react';
 import { ParameterCategory, ImportOptions, ExportOptions, ParameterFile, ValidationResult } from './types';
@@ -38,17 +38,18 @@ const ImportExport: React.FC<ImportExportProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('');
+  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  
+  // Use ref to avoid stale closures
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Parse parameter file content with debugging
+  // Parse parameter file content
   const parseParameterFile = useCallback((content: string, filename: string): ParameterFile | null => {
-    console.log('parseParameterFile called with:', filename);
     try {
       const lines = content.split('\n').filter(line => line.trim());
-      console.log('Total lines after filtering:', lines.length);
       
       const parameters: any[] = [];
       let format: 'txt' | 'parm' = filename.endsWith('.parm') ? 'parm' : 'txt';
-      console.log('Detected format:', format);
 
       for (const line of lines) {
         if (line.startsWith('#') || line.startsWith('//') || !line.trim()) {
@@ -75,9 +76,6 @@ const ImportExport: React.FC<ImportExportProps> = ({
         }
       }
 
-      console.log('Parsed parameters count:', parameters.length);
-      console.log('First few parameters:', parameters.slice(0, 3));
-
       return {
         name: filename,
         content,
@@ -92,7 +90,6 @@ const ImportExport: React.FC<ImportExportProps> = ({
 
   // Validate imported parameters
   const validateParameters = useCallback((file: ParameterFile): ValidationResult => {
-    console.log('validateParameters called with:', file?.name);
     const errors: string[] = [];
     const warnings: string[] = [];
     
@@ -104,106 +101,92 @@ const ImportExport: React.FC<ImportExportProps> = ({
       errors.push('No valid parameters found in file');
     }
 
-    if (file.parameterCount < 10) {
+    if (file.parameterCount > 0 && file.parameterCount < 10) {
       warnings.push(`Only ${file.parameterCount} parameters found - this seems low`);
     }
 
-    const result = {
+    return {
       isValid: errors.length === 0,
       errors,
       warnings
     };
-    
-    console.log('Validation result:', result);
-    return result;
   }, []);
 
-  // Handle file selection with extensive debugging
+  // Handle file selection with proper error handling
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('=== FILE SELECTION STARTED ===');
     const file = event.target.files?.[0];
     
     if (!file) {
-      console.log('No file selected');
       return;
     }
 
-    console.log('File selected:', {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: file.lastModified
-    });
-    
-    // Reset previous state
+    // Reset state immediately
     setSelectedFile(null);
     setValidationResult(null);
-    console.log('Previous state cleared');
+    setProcessingStatus('Reading file...');
 
     const reader = new FileReader();
     
     reader.onload = (e) => {
-      console.log('=== FILE READING COMPLETED ===');
-      const content = e.target?.result as string;
-      
-      if (!content) {
-        console.error('File content is empty or null');
+      try {
+        const content = e.target?.result as string;
+        
+        if (!content) {
+          setValidationResult({
+            isValid: false,
+            errors: ['File appears to be empty'],
+            warnings: []
+          });
+          setProcessingStatus('');
+          return;
+        }
+        
+        const parsedFile = parseParameterFile(content, file.name);
+        
+        if (parsedFile) {
+          setSelectedFile(parsedFile);
+          const validation = validateParameters(parsedFile);
+          setValidationResult(validation);
+          setProcessingStatus('');
+        } else {
+          setValidationResult({
+            isValid: false,
+            errors: ['Failed to parse parameter file. Please check format.'],
+            warnings: []
+          });
+          setProcessingStatus('');
+        }
+      } catch (error) {
+        console.error('File processing error:', error);
         setValidationResult({
           isValid: false,
-          errors: ['File appears to be empty'],
+          errors: ['Error processing file. Please try again.'],
           warnings: []
         });
-        return;
-      }
-      
-      console.log('File content length:', content.length);
-      console.log('First 200 chars:', content.substring(0, 200));
-      
-      const parsedFile = parseParameterFile(content, file.name);
-      
-      if (parsedFile) {
-        console.log('=== FILE PARSED SUCCESSFULLY ===');
-        console.log('Setting selectedFile state...');
-        setSelectedFile(parsedFile);
-        
-        const validation = validateParameters(parsedFile);
-        console.log('Setting validationResult state...');
-        setValidationResult(validation);
-        
-        console.log('=== STATE UPDATED ===');
-      } else {
-        console.error('=== FILE PARSING FAILED ===');
-        setValidationResult({
-          isValid: false,
-          errors: ['Failed to parse parameter file. Please check format.'],
-          warnings: []
-        });
+        setProcessingStatus('');
       }
     };
 
-    reader.onerror = (e) => {
-      console.error('File reading error:', e);
+    reader.onerror = () => {
       setValidationResult({
         isValid: false,
         errors: ['Failed to read file'],
         warnings: []
       });
+      setProcessingStatus('');
     };
 
-    console.log('Starting file read...');
     reader.readAsText(file);
   }, [parseParameterFile, validateParameters]);
 
-  // Handle import with real processing
+  // Handle import - only update parameter tree, don't upload to drone
   const handleImport = useCallback(async () => {
-    console.log('=== IMPORT STARTED ===');
     if (!selectedFile || !validationResult?.isValid) {
-      console.log('Cannot import - no valid file selected');
       return;
     }
 
     setIsProcessing(true);
-    setProcessingStatus('Parsing parameter file...');
+    setProcessingStatus('Processing parameters...');
     
     try {
       const lines = selectedFile.content.split('\n');
@@ -217,25 +200,23 @@ const ImportExport: React.FC<ImportExportProps> = ({
           : line.match(/^([A-Z_][A-Z0-9_]*)\s+(.+)$/);
         
         if (match) {
+          const value = match[2].trim();
           parameters.push({
             name: match[1].trim(),
-            value: parseFloat(match[2].trim()) || match[2].trim()
+            value: isNaN(parseFloat(value)) ? value : parseFloat(value)
           });
         }
       }
 
-      console.log('Final parameters to import:', parameters.length);
-      setProcessingStatus(`Processing ${parameters.length} parameters...`);
+      // Update the parameter tree (not upload to drone)
+      onImportParameters(parameters);
       
-      await new Promise(resolve => {
-        setTimeout(() => {
-          onImportParameters(parameters);
-          resolve(void 0);
-        }, 100);
+      setNotification({
+        type: 'success',
+        message: `Successfully imported ${parameters.length} parameters to parameter tree`
       });
 
-      setProcessingStatus('Import completed successfully!');
-      
+      // Clean up and close modal
       setTimeout(() => {
         setIsProcessing(false);
         setImportModalOpen(false);
@@ -247,11 +228,18 @@ const ImportExport: React.FC<ImportExportProps> = ({
           replaceExisting: true,
           validateRanges: true
         });
+        // Reset file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       }, 1000);
 
     } catch (error) {
       console.error('Import error:', error);
-      setProcessingStatus('Import failed. Please try again.');
+      setNotification({
+        type: 'error',
+        message: 'Import failed. Please try again.'
+      });
       setIsProcessing(false);
     }
   }, [selectedFile, validationResult, onImportParameters]);
@@ -265,6 +253,10 @@ const ImportExport: React.FC<ImportExportProps> = ({
       setExportModalOpen(false);
     } catch (error) {
       console.error('Export error:', error);
+      setNotification({
+        type: 'error',
+        message: 'Export failed. Please try again.'
+      });
     } finally {
       setIsExporting(false);
     }
@@ -279,7 +271,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
     
     return createPortal(
       <div 
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
         style={{ zIndex: 999999 }}
       >
         {children}
@@ -288,23 +280,20 @@ const ImportExport: React.FC<ImportExportProps> = ({
     );
   };
 
-  // Debug component state
-  console.log('Current component state:', {
-    importModalOpen,
-    selectedFile: selectedFile?.name || 'none',
-    validationResult: validationResult?.isValid || 'none',
-    isProcessing
-  });
+  // Clear notification after 5 seconds
+  React.useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   return (
     <React.Fragment>
       {/* Import/Export Buttons */}
       <div className="flex gap-2">
         <button
-          onClick={() => {
-            console.log('Import button clicked');
-            setImportModalOpen(true);
-          }}
+          onClick={() => setImportModalOpen(true)}
           className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center gap-2 transition-colors text-sm"
         >
           <Upload className="h-4 w-4" />
@@ -356,21 +345,18 @@ const ImportExport: React.FC<ImportExportProps> = ({
             </h3>
             <button
               onClick={() => {
-                console.log('Closing import modal');
                 setImportModalOpen(false);
                 setSelectedFile(null);
                 setValidationResult(null);
+                if (fileInputRef.current) {
+                  fileInputRef.current.value = '';
+                }
               }}
               className="text-gray-400 hover:text-white"
               disabled={isProcessing}
             >
               <X className="h-5 w-5" />
             </button>
-          </div>
-          
-          {/* Debug Info */}
-          <div className="mb-4 p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-xs text-yellow-300">
-            DEBUG: Modal Open = {importModalOpen.toString()} | Selected File = {selectedFile?.name || 'none'} | Valid = {validationResult?.isValid?.toString() || 'none'}
           </div>
           
           <div className="space-y-6">
@@ -380,6 +366,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
                 Select Parameter File (.txt or .parm)
               </label>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".txt,.parm"
                 onChange={handleFileSelect}
@@ -387,6 +374,13 @@ const ImportExport: React.FC<ImportExportProps> = ({
                 className="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-500/20 file:text-blue-300 hover:file:bg-blue-500/30 file:cursor-pointer disabled:opacity-50"
               />
             </div>
+
+            {/* Processing Status */}
+            {processingStatus && (
+              <div className="text-sm text-blue-400">
+                {processingStatus}
+              </div>
+            )}
 
             {/* File Info & Validation */}
             {selectedFile && (
@@ -401,11 +395,6 @@ const ImportExport: React.FC<ImportExportProps> = ({
                 
                 <div className="text-sm text-gray-400">
                   Parameters found: <span className="text-white">{selectedFile.parameterCount}</span>
-                </div>
-
-                {/* Debug Info */}
-                <div className="mt-2 text-xs text-green-400">
-                  ✅ DEBUG: File loaded successfully - {selectedFile.name}
                 </div>
 
                 {/* Validation Results */}
@@ -524,6 +513,9 @@ const ImportExport: React.FC<ImportExportProps> = ({
                   setImportModalOpen(false);
                   setSelectedFile(null);
                   setValidationResult(null);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                  }
                 }}
                 disabled={isProcessing}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
@@ -543,7 +535,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
                 ) : (
                   <React.Fragment>
                     <Upload className="h-4 w-4" />
-                    Import Parameters
+                    Import to Parameter Tree
                   </React.Fragment>
                 )}
               </button>
@@ -654,6 +646,22 @@ const ImportExport: React.FC<ImportExportProps> = ({
           </div>
         </div>
       </ModalPortal>
+
+      {/* Notification */}
+      {notification && (
+        <div className={`fixed top-4 right-4 p-4 rounded-lg border backdrop-blur-sm z-[100000] flex items-center gap-2 ${
+          notification.type === 'success' 
+            ? 'bg-green-900/80 border-green-500/30 text-green-300'
+            : 'bg-red-900/80 border-red-500/30 text-red-300'
+        }`}>
+          {notification.type === 'success' ? (
+            <CheckCircle className="h-4 w-4" />
+          ) : (
+            <AlertTriangle className="h-4 w-4" />
+          )}
+          <span className="text-sm">{notification.message}</span>
+        </div>
+      )}
     </React.Fragment>
   );
 };
