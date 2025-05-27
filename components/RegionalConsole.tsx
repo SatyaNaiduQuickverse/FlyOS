@@ -5,8 +5,24 @@ import {
   RefreshCcw, AlertTriangle, CheckCircle,
   MapPin, Maximize, ChevronDown, ChevronUp
 } from 'lucide-react';
-import DroneLocationMap from './DroneLocationMap';
-import GradientText from './GradientText';
+
+// Placeholder for DroneLocationMap component
+const DroneLocationMap = ({ location, expanded }) => (
+  <div className="w-full h-full bg-gray-800 rounded flex items-center justify-center text-gray-400">
+    <div className="text-center">
+      <MapPin className="h-8 w-8 mx-auto mb-2" />
+      <div className="text-sm">Map: {location.city}</div>
+      <div className="text-xs mt-1">{location.lat.toFixed(4)}, {location.lng.toFixed(4)}</div>
+    </div>
+  </div>
+);
+
+// Placeholder for GradientText component
+const GradientText = ({ text, className }) => (
+  <span className={`bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent ${className}`}>
+    {text}
+  </span>
+);
 
 // Region interface
 interface Region {
@@ -302,7 +318,7 @@ const RegionalConsole: React.FC = () => {
           )}
 
           {/* Dashboard */}
-          <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {/* Left side - Regions panel */}
             <div className="lg:col-span-1">
               <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
@@ -386,7 +402,7 @@ const RegionalConsole: React.FC = () => {
 
             {/* Right side - Drones panel */}
             <div className="lg:col-span-2">
-              <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm h-full">
+              <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-light tracking-wider flex items-center gap-2 text-blue-300">
                     {selectedRegion 
@@ -418,7 +434,7 @@ const RegionalConsole: React.FC = () => {
                     <p className="text-sm mt-2">Try selecting a different region or filter</p>
                   </div>
                 ) : (
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 drone-list">
+                  <div className="space-y-4">
                     {filteredDrones.map(drone => (
                       <div 
                         key={drone.id}
@@ -626,4 +642,4 @@ const RegionalConsole: React.FC = () => {
   );
 };
 
-export default RegionalConsole;  
+export default RegionalConsole;

@@ -1,4 +1,4 @@
-// app/secure/main-hq/dashboard/page.tsx
+// app/secure/main-hq/dashboard/page.tsx - UPDATED TO USE NEW USER MANAGEMENT
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,7 +7,7 @@ import { UserRole } from '../../../../types/auth';
 import { useRouter } from 'next/navigation';
 import LoginHistoryTable from '../../../../components/LoginHistoryTable';
 import RegionalConsole from '../../../../components/RegionalConsole';
-import UserManagement from '../../../../components/UserManagement';
+import UserManagement from '../../../../components/UserManagement/index';
 import GradientText from '../../../../components/GradientText';
 import DroneControlHub from '../../../../components/DroneControlHub';
 import { 
@@ -358,6 +358,7 @@ export default function MainHQDashboard() {
 
         {activeTab === 'regional' && <RegionalConsole />}
         
+        {/* UPDATED: Use new UserManagement component */}
         {activeTab === 'users' && <UserManagement />}
 
         {activeTab === 'logs' && (
