@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - UNIFIED CONTROL SECTION
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - WITH PARAMS TAB
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -22,6 +22,7 @@ import DronePWMControl from '../../../../../components/DroneControl/DronePWMCont
 import WaypointDropbox from '../../../../../components/DroneControl/WaypointDropbox';
 import DronePayload from '../../../../../components/DroneControl/DronePayload';
 import DroneMap from '../../../../../components/DroneControl/DroneMap';
+import ParameterManager from '../../../../../components/ParameterManager';
 
 export default function DroneControlPage() {
   const router = useRouter();
@@ -251,7 +252,7 @@ export default function DroneControlPage() {
         </div>
       </div>
       
-      {/* Simplified Tabs */}
+      {/* Tabs */}
       <div className="bg-gray-900/60 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex overflow-x-auto py-1 no-scrollbar">
@@ -286,6 +287,17 @@ export default function DroneControlPage() {
             >
               <LineChart className="h-4 w-4" />
               TELEMETRY
+            </button>
+            
+            <button 
+              onClick={() => setActiveTab('params')}
+              className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                ${activeTab === 'params' 
+                  ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
+            >
+              <Sliders className="h-4 w-4" />
+              PARAMS
             </button>
             
             <button 
@@ -346,6 +358,14 @@ export default function DroneControlPage() {
         {/* TELEMETRY TAB */}
         {activeTab === 'telemetry' && (
           <DetailedTelemetry droneId={droneId as string} />
+        )}
+        
+        {/* PARAMS TAB - NEW */}
+        {activeTab === 'params' && (
+          <ParameterManager 
+            droneId={droneId as string}
+            isControlEnabled={isConnected}
+          />
         )}
         
         {/* SETTINGS TAB */}

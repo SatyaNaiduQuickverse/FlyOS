@@ -1,20 +1,24 @@
-// components/DroneControl/ParameterManager/ImportExport.tsx
+// components/ParameterManager/ImportExport.tsx - COMPLETE VERSION (FIXED)
 import React, { useState, useCallback } from 'react';
-import { Upload, Download, X, CheckCircle, AlertTriangle, FileText, Filter } from 'lucide-react';
-import { ParameterCategory, ParameterFile, ImportOptions, ExportOptions, ValidationResult } from './types';
+import { Upload, Download, X, CheckCircle, AlertTriangle, FileText, Filter, Save } from 'lucide-react';
+import { ParameterCategory, ImportOptions, ExportOptions, ParameterFile, ValidationResult } from './types';
 
 interface ImportExportProps {
   parameterData: ParameterCategory[];
-  onImportParameters: (parameters: any[], options: ImportOptions) => void;
-  onExportParameters: (options: ExportOptions) => void;
+  onImportParameters: (parameters: any[]) => void;
+  onExportParameters: (format: 'txt' | 'parm') => void;
+  onUploadToDrone: () => void;
   droneId: string;
+  isControlEnabled: boolean;
 }
 
 const ImportExport: React.FC<ImportExportProps> = ({
   parameterData,
   onImportParameters,
   onExportParameters,
-  droneId
+  onUploadToDrone,
+  droneId,
+  isControlEnabled
 }) => {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -31,6 +35,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
   });
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Parse parameter file content
   const parseParameterFile = useCallback((content: string, filename: string): ParameterFile | null => {
@@ -97,11 +102,6 @@ const ImportExport: React.FC<ImportExportProps> = ({
       warnings.push(`Only ${file.parameterCount} parameters found - this seems low`);
     }
 
-    // Additional validation would go here
-    // - Check parameter names against known parameters
-    // - Validate ranges
-    // - Check for conflicts
-
     return {
       isValid: errors.length === 0,
       errors,
@@ -160,35 +160,39 @@ const ImportExport: React.FC<ImportExportProps> = ({
     }
 
     setTimeout(() => {
-      onImportParameters(parameters, importOptions);
+      onImportParameters(parameters);
       setIsProcessing(false);
       setImportModalOpen(false);
       setSelectedFile(null);
       setValidationResult(null);
     }, 1000);
-  }, [selectedFile, validationResult, importOptions, onImportParameters]);
+  }, [selectedFile, validationResult, onImportParameters]);
 
-  // Handle export
-  const handleExport = useCallback(() => {
-    setIsProcessing(true);
+  // Handle export with loading state
+  const handleExport = useCallback(async () => {
+    setIsExporting(true);
     
-    setTimeout(() => {
-      onExportParameters(exportOptions);
-      setIsProcessing(false);
+    try {
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      onExportParameters(exportOptions.format);
       setExportModalOpen(false);
-    }, 500);
+    } finally {
+      setIsExporting(false);
+    }
   }, [exportOptions, onExportParameters]);
 
   // Get available categories
   const availableCategories = parameterData.map(cat => cat.name);
 
   return (
-    <>
-      {/* Import/Export Buttons */}
+    <React.Fragment>
+      {/* Import/Export Buttons - Fixed Size */}
       <div className="flex gap-2">
         <button
           onClick={() => setImportModalOpen(true)}
-          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center gap-2 transition-colors"
+          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center gap-2 transition-colors text-sm"
         >
           <Upload className="h-4 w-4" />
           Import
@@ -196,17 +200,30 @@ const ImportExport: React.FC<ImportExportProps> = ({
         
         <button
           onClick={() => setExportModalOpen(true)}
-          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center gap-2 transition-colors"
+          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center gap-2 transition-colors text-sm"
         >
           <Download className="h-4 w-4" />
           Export
         </button>
+        
+        <button
+          onClick={onUploadToDrone}
+          disabled={!isControlEnabled}
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm ${
+            isControlEnabled 
+              ? 'bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300'
+              : 'bg-gray-800/50 border border-gray-700/50 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          <Save className="h-4 w-4" />
+          Upload to Drone
+        </button>
       </div>
 
-      {/* Import Modal */}
+      {/* Import Modal - Complete Version */}
       {importModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999]">
+          <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 w-full max-w-2xl max-h-[80vh] overflow-y-auto mx-4">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
                 <Upload className="h-5 w-5 text-blue-400" />
@@ -377,15 +394,15 @@ const ImportExport: React.FC<ImportExportProps> = ({
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isProcessing ? (
-                    <>
+                    <React.Fragment>
                       <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
                       Importing...
-                    </>
+                    </React.Fragment>
                   ) : (
-                    <>
+                    <React.Fragment>
                       <Upload className="h-4 w-4" />
                       Import Parameters
-                    </>
+                    </React.Fragment>
                   )}
                 </button>
               </div>
@@ -394,10 +411,10 @@ const ImportExport: React.FC<ImportExportProps> = ({
         </div>
       )}
 
-      {/* Export Modal */}
+      {/* Export Modal - Complete Version */}
       {exportModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 w-full max-w-lg">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
+          <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
                 <Download className="h-5 w-5 text-blue-400" />
@@ -406,16 +423,17 @@ const ImportExport: React.FC<ImportExportProps> = ({
               <button
                 onClick={() => setExportModalOpen(false)}
                 className="text-gray-400 hover:text-white"
+                disabled={isExporting}
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             
-            <div className="space-y-6">
+            <div className="flex-1 overflow-y-auto pr-2" style={{ maxHeight: 'calc(90vh - 160px)' }}>
               {/* Export Format */}
               <div>
                 <label className="block text-sm text-gray-300 mb-3">Export Format</label>
-                <div className="flex gap-3">
+                <div className="flex gap-4">
                   <label className="flex items-center">
                     <input
                       type="radio"
@@ -427,6 +445,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
                         format: e.target.value as 'txt' | 'parm'
                       }))}
                       className="mr-2"
+                      disabled={isExporting}
                     />
                     <span className="text-gray-300">.txt (Mission Planner)</span>
                   </label>
@@ -441,6 +460,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
                         format: e.target.value as 'txt' | 'parm'
                       }))}
                       className="mr-2"
+                      disabled={isExporting}
                     />
                     <span className="text-gray-300">.parm (ArduPilot)</span>
                   </label>
@@ -448,11 +468,11 @@ const ImportExport: React.FC<ImportExportProps> = ({
               </div>
 
               {/* Category Selection */}
-              <div>
+              <div className="mt-6">
                 <label className="block text-sm text-gray-300 mb-3">
                   Categories to Export (leave empty for all):
                 </label>
-                <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto bg-gray-800/30 p-3 rounded-lg">
+                <div className="max-h-32 overflow-y-auto bg-gray-800/30 p-3 rounded-lg space-y-2">
                   {availableCategories.map(category => (
                     <label key={category} className="flex items-center text-sm">
                       <input
@@ -472,6 +492,7 @@ const ImportExport: React.FC<ImportExportProps> = ({
                           }
                         }}
                         className="mr-2 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                        disabled={isExporting}
                       />
                       <span className="text-gray-300">{category}</span>
                     </label>
@@ -480,50 +501,54 @@ const ImportExport: React.FC<ImportExportProps> = ({
               </div>
 
               {/* Modified Only */}
-              <label className="flex items-center text-sm">
-                <input
-                  type="checkbox"
-                  checked={exportOptions.modifiedOnly || false}
-                  onChange={(e) => setExportOptions(prev => ({
-                    ...prev,
-                    modifiedOnly: e.target.checked
-                  }))}
-                  className="mr-2 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500"
-                />
-                <span className="text-gray-300">Export only modified parameters</span>
-              </label>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setExportModalOpen(false)}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleExport}
-                  disabled={isProcessing}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isProcessing ? (
-                    <>
-                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                      Exporting...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="h-4 w-4" />
-                      Export as {exportOptions.format.toUpperCase()}
-                    </>
-                  )}
-                </button>
+              <div className="mt-6">
+                <label className="flex items-center text-sm">
+                  <input
+                    type="checkbox"
+                    checked={exportOptions.modifiedOnly || false}
+                    onChange={(e) => setExportOptions(prev => ({
+                      ...prev,
+                      modifiedOnly: e.target.checked
+                    }))}
+                    className="mr-2 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500"
+                    disabled={isExporting}
+                  />
+                  <span className="text-gray-300">Export only modified parameters</span>
+                </label>
               </div>
+            </div>
+
+            {/* Action Buttons - Fixed at Bottom */}
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-800 bg-gray-900">
+              <button
+                onClick={() => setExportModalOpen(false)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                disabled={isExporting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={isExporting}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isExporting ? (
+                  <React.Fragment>
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                    Exporting...
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <Download className="h-4 w-4" />
+                    Export as {exportOptions.format.toUpperCase()}
+                  </React.Fragment>
+                )}
+              </button>
             </div>
           </div>
         </div>
       )}
-    </>
+    </React.Fragment>
   );
 };
 

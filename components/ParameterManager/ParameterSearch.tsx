@@ -1,4 +1,4 @@
-// components/DroneControl/ParameterManager/ParameterSearch.tsx
+// components/ParameterManager/ParameterSearch.tsx - UPDATED VERSION
 import React, { useState, useCallback, useMemo } from 'react';
 import { Search, X, Filter, Tag } from 'lucide-react';
 import { ParameterCategory } from './types';
@@ -7,7 +7,6 @@ interface ParameterSearchProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   parameterData: ParameterCategory[];
-  onFilteredDataChange?: (filteredData: ParameterCategory[]) => void;
 }
 
 interface SearchSuggestion {
@@ -142,7 +141,8 @@ const ParameterSearch: React.FC<ParameterSearchProps> = ({
   }, [searchQuery, parameterData]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 flex-1">
+      
       {/* Search Input */}
       <div className="relative">
         <div className="relative">
@@ -244,23 +244,6 @@ const ParameterSearch: React.FC<ParameterSearchProps> = ({
           </select>
         </div>
       </div>
-
-      {/* Search Stats */}
-      {searchStats && (
-        <div className="flex items-center gap-4 text-sm text-gray-400">
-          <span>
-            Found <span className="text-blue-300 font-medium">{searchStats.matchingParams}</span> parameters
-          </span>
-          <span>•</span>
-          <span>
-            in <span className="text-green-300 font-medium">{searchStats.matchingCategories}</span> categories
-          </span>
-          <span>•</span>
-          <span>
-            of <span className="text-gray-300">{searchStats.totalParams}</span> total
-          </span>
-        </div>
-      )}
 
       {/* Quick Search Tips */}
       {!searchQuery && (

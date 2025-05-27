@@ -1,7 +1,8 @@
-// components/DroneControl/ParameterManager/ParameterTree.tsx
+// components/ParameterManager/ParameterTree.tsx - UPDATED VERSION
 import React from 'react';
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { ParameterCategory, Parameter } from './types';
+import { PARAMETER_CATEGORIES } from './parameterData';
 
 interface ParameterTreeProps {
   filteredData: ParameterCategory[];
@@ -9,6 +10,9 @@ interface ParameterTreeProps {
   onToggleSubcategory: (categoryIndex: number, subcategoryIndex: number) => void;
   onUpdateParameter: (categoryIndex: number, subcategoryIndex: number, paramIndex: number, newValue: string | number) => void;
   isControlEnabled: boolean;
+  searchQuery: string;
+  parameterData: ParameterCategory[];
+  setParameterData: React.Dispatch<React.SetStateAction<ParameterCategory[]>>;
 }
 
 const ParameterTree: React.FC<ParameterTreeProps> = ({
@@ -16,7 +20,10 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
   onToggleCategory,
   onToggleSubcategory,
   onUpdateParameter,
-  isControlEnabled
+  isControlEnabled,
+  searchQuery,
+  parameterData,
+  setParameterData
 }) => {
   const resetToDefault = (
     categoryIndex: number, 
@@ -25,7 +32,22 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
     parameter: Parameter
   ) => {
     if (parameter.default !== undefined) {
-      onUpdateParameter(categoryIndex, subcategoryIndex, paramIndex, parameter.default);
+      if (searchQuery) {
+        // When searching, update the original data
+        setParameterData(prev => prev.map(cat => ({
+          ...cat,
+          subcategories: cat.subcategories.map(sub => ({
+            ...sub,
+            parameters: sub.parameters.map(p => 
+              p.name === parameter.name 
+                ? { ...p, value: parameter.default as string | number, modified: false }
+                : p
+            )
+          }))
+        })));
+      } else {
+        onUpdateParameter(categoryIndex, subcategoryIndex, paramIndex, parameter.default);
+      }
     }
   };
 
@@ -69,7 +91,7 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
         </div>
       </div>
 
-      <div className="max-h-[600px] overflow-y-auto">
+      <div className="overflow-y-visible">
         {filteredData.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             <div className="text-lg mb-2">No parameters found</div>
@@ -82,6 +104,7 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
               <button
                 onClick={() => onToggleCategory(categoryIndex)}
                 className="w-full p-4 text-left hover:bg-gray-800/50 flex items-center justify-between transition-colors"
+                disabled={searchQuery.length > 0} // Disable toggle during search
               >
                 <div className="flex items-center gap-3">
                   {category.expanded ? (
@@ -113,6 +136,7 @@ const ParameterTree: React.FC<ParameterTreeProps> = ({
                       <button
                         onClick={() => onToggleSubcategory(categoryIndex, subcategoryIndex)}
                         className="w-full p-3 pl-8 text-left hover:bg-gray-800/50 flex items-center justify-between transition-colors border-t border-gray-800/50"
+                        disabled={searchQuery.length > 0} // Disable toggle during search
                       >
                         <div className="flex items-center gap-3">
                           {subcategory.expanded ? (
