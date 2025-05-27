@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - WITH PARAMS TAB
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - WITH PLANNING TAB
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,7 +7,7 @@ import {
   Plane, ArrowLeft, Signal, Battery, Activity,
   LineChart, Settings, Globe, Wifi, WifiOff,
   RefreshCw, AlertTriangle, Camera, MapPin,
-  Package, Sliders, Upload
+  Package, Sliders, Upload, Route
 } from 'lucide-react';
 import { useAuth } from '../../../../../lib/auth';
 import { useDroneState } from '../../../../../lib/hooks/useDroneState';
@@ -23,6 +23,7 @@ import WaypointDropbox from '../../../../../components/DroneControl/WaypointDrop
 import DronePayload from '../../../../../components/DroneControl/DronePayload';
 import DroneMap from '../../../../../components/DroneControl/DroneMap';
 import ParameterManager from '../../../../../components/ParameterManager';
+import MissionPlanner from '../../../../../components/MissionPlanner';
 
 export default function DroneControlPage() {
   const router = useRouter();
@@ -268,6 +269,17 @@ export default function DroneControlPage() {
             </button>
             
             <button 
+              onClick={() => setActiveTab('planning')}
+              className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                ${activeTab === 'planning' 
+                  ? 'bg-blue-900/20 text-blue-300 border border-blue-500/40' 
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/30'}`}
+            >
+              <Route className="h-4 w-4" />
+              PLANNING
+            </button>
+            
+            <button 
               onClick={() => setActiveTab('control')}
               className={`px-4 py-3 mx-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
                 ${activeTab === 'control' 
@@ -328,6 +340,13 @@ export default function DroneControlPage() {
           </div>
         )}
         
+        {/* PLANNING TAB - NEW */}
+        {activeTab === 'planning' && (
+          <div className="bg-black text-white min-h-[600px]">
+            <MissionPlanner />
+          </div>
+        )}
+        
         {/* UNIFIED CONTROL CENTER TAB */}
         {activeTab === 'control' && drone && (
           <div className="space-y-6">
@@ -360,7 +379,7 @@ export default function DroneControlPage() {
           <DetailedTelemetry droneId={droneId as string} />
         )}
         
-        {/* PARAMS TAB - NEW */}
+        {/* PARAMS TAB */}
         {activeTab === 'params' && (
           <ParameterManager 
             droneId={droneId as string}
