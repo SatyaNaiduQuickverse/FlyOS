@@ -1,4 +1,4 @@
-// components/UserManagement/CreateUserForm.tsx - Create/Edit User Form Component
+// components/UserManagement/CreateUserForm.tsx - Fixed Dropdown Styling
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Save, X } from 'lucide-react';
 import { UserRole } from '../../types/auth';
@@ -134,6 +134,14 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
     }
   };
 
+  // Fixed dropdown styles
+  const selectStyles = {
+    backgroundImage: "url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e\")",
+    backgroundPosition: 'right 0.5rem center',
+    backgroundRepeat: 'no-repeat',
+    backgroundSize: '1.5em 1.5em'
+  };
+
   return (
     <div className="p-6">
       <div className="bg-gradient-to-b from-gray-900/80 to-black/80 rounded-lg border border-gray-800 p-6 backdrop-blur-sm">
@@ -162,7 +170,7 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                 name="username"
                 value={formState.username}
                 onChange={handleInputChange}
-                className={`bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
+                className={`bg-gray-800 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
                   errors.username 
                     ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' 
                     : 'border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
@@ -185,7 +193,7 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                 name="fullName"
                 value={formState.fullName}
                 onChange={handleInputChange}
-                className={`bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
+                className={`bg-gray-800 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
                   errors.fullName 
                     ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' 
                     : 'border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
@@ -208,7 +216,7 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                 name="email"
                 value={formState.email}
                 onChange={handleInputChange}
-                className={`bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
+                className={`bg-gray-800 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
                   errors.email 
                     ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' 
                     : 'border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
@@ -230,7 +238,8 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                 name="role"
                 value={formState.role}
                 onChange={handleInputChange}
-                className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all backdrop-blur-sm"
+                className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-3 w-full focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer pr-10"
+                style={selectStyles}
                 required
               >
                 <option value={UserRole.REGIONAL_HQ}>Regional Commander</option>
@@ -248,11 +257,10 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                   name="regionId"
                   value={formState.regionId}
                   onChange={handleInputChange}
-                  className={`bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
-                    errors.regionId 
-                      ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' 
-                      : 'border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                  className={`bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-3 w-full focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer pr-10 ${
+                    errors.regionId ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' : ''
                   }`}
+                  style={selectStyles}
                   required
                 >
                   <option value="">Select a region</option>
@@ -275,7 +283,8 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                 name="status"
                 value={formState.status}
                 onChange={handleInputChange}
-                className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all backdrop-blur-sm"
+                className="bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-3 w-full focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer pr-10"
+                style={selectStyles}
               >
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
@@ -294,7 +303,7 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                     name="password"
                     value={formState.password}
                     onChange={handleInputChange}
-                    className={`bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
+                    className={`bg-gray-800 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
                       errors.password 
                         ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' 
                         : 'border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
@@ -316,7 +325,7 @@ const CreateUserForm: React.FC<CreateUserFormProps> = ({
                     name="confirmPassword"
                     value={formState.confirmPassword}
                     onChange={handleInputChange}
-                    className={`bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
+                    className={`bg-gray-800 rounded-lg px-4 py-3 text-white w-full border transition-all backdrop-blur-sm ${
                       errors.confirmPassword 
                         ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-500/20' 
                         : 'border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'

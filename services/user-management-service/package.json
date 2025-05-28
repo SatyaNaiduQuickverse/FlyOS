@@ -1,0 +1,47 @@
+{
+  "name": "user-management-service",
+  "version": "1.0.0",
+  "description": "FlyOS User Management Service",
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.0",
+    "@supabase/supabase-js": "^2.38.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "winston": "^3.8.2",
+    "joi": "^17.9.0",
+    "bcrypt": "^5.1.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/bcrypt": "^5.0.2",
+    "@types/uuid": "^9.0.7",
+    "prisma": "^5.7.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0"
+  },
+  "keywords": [
+    "flyos",
+    "user-management",
+    "drone-control",
+    "military"
+  ],
+  "author": "FlyOS Team",
+  "license": "PROPRIETARY"
+}

@@ -1,4 +1,4 @@
-// components/UserManagement/index.tsx - Main Component
+// components/UserManagement/index.tsx - Updated with Region Management
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -10,11 +10,13 @@ import OperatorsList from './OperatorsList';
 import CreateUserForm from './CreateUserForm';
 import DroneManagement from './DroneManagement';
 import CreateDroneForm from './CreateDroneForm';
+import RegionManagement from './RegionManagement';
+import CreateRegionForm from './CreateRegionForm';
 import { User, Region, Drone, UserManagementTab, Notification } from './types';
 import { MOCK_USERS, MOCK_REGIONS, MOCK_DRONES } from './mockData';
 
 const UserManagement: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<UserManagementTab>(UserManagementTab.REGIONAL_COMMANDERS);
+  const [activeTab, setActiveTab] = useState<UserManagementTab>(UserManagementTab.MANAGE_REGIONS);
   const [users, setUsers] = useState<User[]>(MOCK_USERS);
   const [regions, setRegions] = useState<Region[]>(MOCK_REGIONS);
   const [drones, setDrones] = useState<Drone[]>(MOCK_DRONES);
@@ -23,6 +25,7 @@ const UserManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showInactive, setShowInactive] = useState<boolean>(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingRegion, setEditingRegion] = useState<Region | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // Load initial data
@@ -62,6 +65,77 @@ const UserManagement: React.FC = () => {
       setIsLoading(false);
       showNotification('Data refreshed successfully');
     }, 1000);
+  };
+
+  // Region management functions
+  const handleCreateRegion = (regionData: any) => {
+    setIsLoading(true);
+    setTimeout(() => {
+      const newRegion: Region = {
+        ...regionData,
+        id: `region-${String(Math.floor(Math.random() * 900) + 100)}`,
+      };
+
+      setRegions(prev => [...prev, newRegion]);
+      setActiveTab(UserManagementTab.MANAGE_REGIONS);
+      showNotification('Successfully created new region');
+      setLastUpdated(new Date());
+      setIsLoading(false);
+    }, 800);
+  };
+
+  const handleUpdateRegion = (regionData: any) => {
+    if (!editingRegion) return;
+    
+    setIsLoading(true);
+    setTimeout(() => {
+      const updatedRegion: Region = {
+        ...editingRegion,
+        ...regionData,
+      };
+
+      setRegions(prev => prev.map(region => region.id === updatedRegion.id ? updatedRegion : region));
+      setActiveTab(UserManagementTab.MANAGE_REGIONS);
+      showNotification('Successfully updated region');
+      setEditingRegion(null);
+      setLastUpdated(new Date());
+      setIsLoading(false);
+    }, 800);
+  };
+
+  const handleDeleteRegion = (regionId: string) => {
+    setIsLoading(true);
+    setTimeout(() => {
+      const regionToDelete = regions.find(r => r.id === regionId);
+      
+      if (regionToDelete) {
+        // Delete users in this region
+        const usersToDelete = users.filter(u => u.regionId === regionId);
+        setUsers(prev => prev.filter(user => user.regionId !== regionId));
+        
+        // Unassign drones from this region (but keep the drones)
+        setDrones(prev => prev.map(drone => 
+          drone.regionId === regionId 
+            ? { ...drone, regionId: null, operatorId: null }
+            : drone
+        ));
+        
+        // Delete the region
+        setRegions(prev => prev.filter(region => region.id !== regionId));
+        
+        showNotification(
+          `Successfully deleted region "${regionToDelete.name}" and ${usersToDelete.length} associated user(s)`
+        );
+      }
+      
+      setLastUpdated(new Date());
+      setIsLoading(false);
+    }, 800);
+  };
+
+  const handleEditRegion = (region: Region) => {
+    setEditingRegion(region);
+    setActiveTab(UserManagementTab.CREATE_REGION);
   };
 
   // User management functions
@@ -116,6 +190,13 @@ const UserManagement: React.FC = () => {
     setTimeout(() => {
       const userToDelete = users.find(u => u.id === userId);
       if (userToDelete) {
+        // Unassign drones from this user
+        setDrones(prev => prev.map(drone => 
+          drone.operatorId === userId 
+            ? { ...drone, operatorId: null }
+            : drone
+        ));
+        
         setUsers(prev => prev.filter(user => user.id !== userId));
         showNotification(`Successfully deleted ${userToDelete.role === UserRole.REGIONAL_HQ ? 'Regional Commander' : 'Field Operator'}`);
       }
@@ -163,7 +244,13 @@ const UserManagement: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-sm bg-gradient-to-r from-blue-900/20 to-indigo-900/20 px-3 py-1 rounded-md border border-blue-500/30">
-              <span className="text-gray-400">Total Users:</span> <span className="text-blue-300 font-light">{users.length}</span>
+              <span className="text-gray-400">Regions:</span> <span className="text-blue-300 font-light">{regions.length}</span>
+            </div>
+            <div className="text-sm bg-gradient-to-r from-blue-900/20 to-indigo-900/20 px-3 py-1 rounded-md border border-blue-500/30">
+              <span className="text-gray-400">Users:</span> <span className="text-blue-300 font-light">{users.length}</span>
+            </div>
+            <div className="text-sm bg-gradient-to-r from-blue-900/20 to-indigo-900/20 px-3 py-1 rounded-md border border-blue-500/30">
+              <span className="text-gray-400">Drones:</span> <span className="text-blue-300 font-light">{drones.length}</span>
             </div>
             <button 
               onClick={refreshData}
@@ -194,6 +281,7 @@ const UserManagement: React.FC = () => {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           editingUser={editingUser}
+          editingRegion={editingRegion}
         />
         
         {/* Loading State */}
@@ -209,6 +297,19 @@ const UserManagement: React.FC = () => {
         {/* Tab Content */}
         {!isLoading && (
           <>
+            {activeTab === UserManagementTab.MANAGE_REGIONS && (
+              <RegionManagement
+                regions={regions}
+                users={users}
+                drones={drones}
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                onEditRegion={handleEditRegion}
+                onDeleteRegion={handleDeleteRegion}
+                setActiveTab={setActiveTab}
+              />
+            )}
+
             {activeTab === UserManagementTab.REGIONAL_COMMANDERS && (
               <RegionalCommandersList
                 users={users.filter(u => u.role === UserRole.REGIONAL_HQ)}
@@ -270,6 +371,20 @@ const UserManagement: React.FC = () => {
                 users={users}
                 onCreateDrone={handleCreateDrone}
                 onCancel={() => setActiveTab(UserManagementTab.MANAGE_DRONES)}
+                isLoading={isLoading}
+              />
+            )}
+
+            {activeTab === UserManagementTab.CREATE_REGION && (
+              <CreateRegionForm
+                editingRegion={editingRegion}
+                users={users}
+                onCreateRegion={handleCreateRegion}
+                onUpdateRegion={handleUpdateRegion}
+                onCancel={() => {
+                  setEditingRegion(null);
+                  setActiveTab(UserManagementTab.MANAGE_REGIONS);
+                }}
                 isLoading={isLoading}
               />
             )}

@@ -1,4 +1,4 @@
-// components/UserManagement/types.ts - Shared Types and Interfaces
+// components/UserManagement/types.ts - Updated with Region Management Types
 import { UserRole } from '../../types/auth';
 
 export interface User {
@@ -18,7 +18,7 @@ export interface User {
 export interface Region {
   id: string;
   name: string;
-  commanderName: string;
+  commanderName?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   area: string;
 }
@@ -42,6 +42,8 @@ export enum UserManagementTab {
   CREATE_USER = 'create-user',
   MANAGE_DRONES = 'manage-drones',
   CREATE_DRONE = 'create-drone',
+  MANAGE_REGIONS = 'manage-regions',
+  CREATE_REGION = 'create-region',
 }
 
 export interface FormState {
@@ -62,6 +64,14 @@ export interface DroneFormState {
   status: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE' | 'STANDBY';
   regionId: string | null;
   operatorId: string | null;
+}
+
+export interface RegionFormState {
+  id: string;
+  name: string;
+  area: string;
+  commanderName: string;
+  status: 'ACTIVE' | 'INACTIVE';
 }
 
 // Props interfaces for components
@@ -104,8 +114,29 @@ export interface CreateDroneFormProps {
   isLoading: boolean;
 }
 
+export interface RegionManagementProps {
+  regions: Region[];
+  users: User[];
+  drones: Drone[];
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  onEditRegion: (region: Region) => void;
+  onDeleteRegion: (regionId: string) => void;
+  setActiveTab: (tab: UserManagementTab) => void;
+}
+
+export interface CreateRegionFormProps {
+  editingRegion: Region | null;
+  users: User[];
+  onCreateRegion: (regionData: any) => void;
+  onUpdateRegion: (regionData: any) => void;
+  onCancel: () => void;
+  isLoading: boolean;
+}
+
 export interface UserManagementTabsProps {
   activeTab: UserManagementTab;
   setActiveTab: (tab: UserManagementTab) => void;
   editingUser: User | null;
+  editingRegion: Region | null;
 }

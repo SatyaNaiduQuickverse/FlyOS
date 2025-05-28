@@ -1,0 +1,113 @@
+// services/user-management-service/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  username       String   @unique
+  fullName       String   @map("full_name")
+  email          String   @unique
+  role           UserRole
+  regionId       String?  @map("region_id")
+  status         UserStatus @default(ACTIVE)
+  supabaseUserId String?  @unique @map("supabase_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  region            Region?               @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  droneAssignments  UserDroneAssignment[]
+  operatedDrones    Drone[]               @relation("DroneOperator")
+
+  @@map("users")
+  @@index([role])
+  @@index([regionId])
+  @@index([status])
+}
+
+model Region {
+  id            String       @id @default(uuid())
+  name          String
+  area          String
+  commanderName String?      @map("commander_name")
+  status        RegionStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  // Relationships
+  users  User[]
+  drones Drone[]
+
+  @@map("regions")
+}
+
+model Drone {
+  id         String      @id // User-defined ID like 'drone-001'
+  model      DroneModel
+  status     DroneStatus @default(STANDBY)
+  regionId   String?     @map("region_id")
+  operatorId String?     @map("operator_id")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  // Relationships
+  region           Region?               @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  operator         User?                 @relation("DroneOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  userAssignments  UserDroneAssignment[]
+
+  @@map("drones")
+  @@index([regionId])
+  @@index([status])
+}
+
+model UserDroneAssignment {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  droneId    String   @map("drone_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  // Relationships
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  drone Drone @relation(fields: [droneId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, droneId])
+  @@map("user_drone_assignments")
+  @@index([userId])
+  @@index([droneId])
+}
+
+// Enums
+enum UserRole {
+  MAIN_HQ
+  REGIONAL_HQ
+  OPERATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RegionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DroneModel {
+  FlyOS_MQ5  @map("FlyOS-MQ5")
+  FlyOS_MQ7  @map("FlyOS-MQ7")
+  FlyOS_MQ9  @map("FlyOS-MQ9")
+}
+
+enum DroneStatus {
+  ACTIVE
+  STANDBY
+  MAINTENANCE
+  OFFLINE
+}
