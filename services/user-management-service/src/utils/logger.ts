@@ -39,7 +39,7 @@ const format = winston.format.combine(
 );
 
 // Define transports
-const transports = [
+const transports: winston.transport[] = [
   // Console transport
   new winston.transports.Console({
     format: winston.format.combine(
@@ -83,14 +83,15 @@ export const logger = winston.createLogger({
   exitOnError: false,
 });
 
-// Handle uncaught exceptions
-logger.exceptions.handle(
-  new winston.transports.File({ filename: 'logs/exceptions.log' })
-);
+// Handle uncaught exceptions and unhandled rejections only in production
+if (process.env.NODE_ENV === 'production') {
+  logger.exceptions.handle(
+    new winston.transports.File({ filename: 'logs/exceptions.log' })
+  );
 
-// Handle unhandled rejections
-logger.rejections.handle(
-  new winston.transports.File({ filename: 'logs/rejections.log' })
-);
+  logger.rejections.handle(
+    new winston.transports.File({ filename: 'logs/rejections.log' })
+  );
+}
 
 export default logger;
