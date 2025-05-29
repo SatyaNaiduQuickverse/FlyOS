@@ -1,4 +1,4 @@
-// services/user-management-service/src/services/userService.ts - COMPLETE FIXED VERSION
+// src/services/userService.ts - Complete with auto-sync
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import {
@@ -7,8 +7,8 @@ import {
   deleteSupabaseUser,
   CreateUserData
 } from './supabaseSync';
+import { syncUserToSupabase, deleteUserFromSupabase } from './supabaseDataSync';
 
-// Input Types
 export interface CreateUserInput {
   username: string;
   fullName: string;
@@ -39,7 +39,7 @@ export interface GetUsersOptions {
 }
 
 /**
- * Create a new user (local + Supabase)
+ * Create user with complete Supabase sync
  */
 export const createUser = async (userData: CreateUserInput) => {
   logger.info(`Creating user: ${userData.username} (${userData.role})`);
@@ -116,6 +116,9 @@ export const createUser = async (userData: CreateUserInput) => {
     });
 
     logger.info(`✅ Local user created: ${localUser.id}`);
+
+    // Step 3: Sync to Supabase profiles table
+    await syncUserToSupabase(localUser);
 
     // Transform response to match frontend expectations
     return {
@@ -238,6 +241,9 @@ export const updateUser = async (userId: string, updateData: UpdateUserInput) =>
 
     logger.info(`✅ Local user updated: ${updatedUser.id}`);
 
+    // Step 3: Sync to Supabase profiles table
+    await syncUserToSupabase(updatedUser);
+
     // Transform response
     return {
       id: updatedUser.id,
@@ -309,6 +315,9 @@ export const deleteUser = async (userId: string) => {
       await deleteSupabaseUser(user.supabaseUserId);
       logger.info(`✅ Supabase user deleted: ${user.supabaseUserId}`);
     }
+
+    // Step 4: Delete from Supabase profiles table
+    await deleteUserFromSupabase(userId);
 
     return {
       success: true,

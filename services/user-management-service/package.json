@@ -1,7 +1,7 @@
 {
   "name": "user-management-service",
   "version": "1.0.0",
-  "description": "FlyOS User Management Service",
+  "description": "FlyOS User Management Service with Complete Supabase Sync",
   "main": "dist/app.js",
   "scripts": {
     "build": "tsc",
@@ -12,12 +12,11 @@
     "generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "init-db": "ts-node src/scripts/initDatabase.ts",
-    "repair-sync": "ts-node src/scripts/initDatabase.ts --repair-only",
-    "sync-users": "ts-node -e \"import('./src/services/supabaseSync').then(m => m.syncExistingUsersToSupabase())\"",
-    "list-users": "ts-node src/scripts/listUsers.ts",
-    "diagnose-supabase": "ts-node src/scripts/supabaseDiagnostic.ts",
-    "fix-supabase": "ts-node src/scripts/supabaseDiagnostic.ts --fix"
+    
+    "backup-to-supabase": "ts-node -e \"import('./src/services/supabaseDataSync').then(m => m.pushAllDataToSupabase()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
+    "restore-from-supabase": "ts-node -e \"import('./src/services/supabaseDataSync').then(m => m.loadAllDataFromSupabase()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
+    "init-with-sync": "ts-node -e \"import('./src/services/supabaseDataSync').then(m => m.initializeWithSupabaseSync()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
+    "verify-sync": "ts-node -e \"const { PrismaClient } = require('@prisma/client'); const { createClient } = require('@supabase/supabase-js'); const prisma = new PrismaClient(); const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY); Promise.all([prisma.user.count(), prisma.region.count(), prisma.drone.count(), supabase.from('profiles').select('*', { count: 'exact', head: true }), supabase.from('regions').select('*', { count: 'exact', head: true }), supabase.from('drones').select('*', { count: 'exact', head: true })]).then(([localUsers, localRegions, localDrones, supabaseUsers, supabaseRegions, supabaseDrones]) => { console.log('LOCAL:', { users: localUsers, regions: localRegions, drones: localDrones }); console.log('SUPABASE:', { users: supabaseUsers.count, regions: supabaseRegions.count, drones: supabaseDrones.count }); process.exit(0); }).catch(console.error);\""
   },
   "dependencies": {
     "@prisma/client": "^5.7.0",
@@ -46,7 +45,8 @@
     "flyos",
     "user-management",
     "drone-control",
-    "military"
+    "supabase-sync",
+    "cross-server-deployment"
   ],
   "author": "FlyOS Team",
   "license": "PROPRIETARY"

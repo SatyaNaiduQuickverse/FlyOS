@@ -1,4 +1,4 @@
-// services/user-management-service/src/app.ts
+// src/app.ts - Enhanced with startup sync
 import dotenv from 'dotenv';
 
 // Load environment variables first
@@ -9,6 +9,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { initDatabase } from './database';
 import { logger } from './utils/logger';
+import { initializeWithSupabaseSync } from './services/supabaseDataSync';
 
 // Import routes
 import userRoutes from './routes/userRoutes';
@@ -98,20 +99,32 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Start server
+// Start server with enhanced initialization
 const startServer = async () => {
   try {
-    // Initialize database connection
+    logger.info('🚀 Starting User Management Service...');
+    
+    // Step 1: Initialize database connection
+    logger.info('📊 Connecting to database...');
     await initDatabase();
     
+    // Step 2: Initialize with Supabase sync (load or create data)
+    logger.info('🔄 Initializing with Supabase sync...');
+    const syncResult = await initializeWithSupabaseSync();
+    
+    logger.info('✅ Sync initialization complete:', syncResult);
+    
+    // Step 3: Start the server
     app.listen(PORT, () => {
       logger.info(`🚀 User Management Service running on port ${PORT}`);
       logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`🔗 CORS Origin: ${process.env.CORS_ORIGIN || 'http://localhost:3000'}`);
       logger.info(`📊 Health check: http://localhost:${PORT}/health`);
+      logger.info(`🎯 Data loaded: ${syncResult.users} users, ${syncResult.regions} regions, ${syncResult.drones} drones`);
     });
+    
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    logger.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 };

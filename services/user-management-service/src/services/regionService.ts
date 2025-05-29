@@ -1,9 +1,10 @@
-// services/user-management-service/src/services/regionService.ts
+// src/services/regionService.ts - Enhanced with auto-sync
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import { deleteSupabaseUser } from './supabaseSync';
+import { syncRegionToSupabase, deleteRegionFromSupabase, deleteUserFromSupabase } from './supabaseDataSync';
 
-// Input Types
+// Keep existing interfaces...
 export interface CreateRegionInput {
   name: string;
   area: string;
@@ -19,12 +20,11 @@ export interface UpdateRegionInput {
 }
 
 /**
- * Create a new region
+ * Create region with Supabase sync
  */
 export const createRegion = async (regionData: CreateRegionInput) => {
   logger.info(`Creating region: ${regionData.name}`);
 
-  // Check for existing region name
   const existingRegion = await prisma.region.findFirst({
     where: { name: regionData.name }
   });
@@ -43,9 +43,11 @@ export const createRegion = async (regionData: CreateRegionInput) => {
       }
     });
 
-    logger.info(`✅ Region created: ${newRegion.id}`);
+    // Sync to Supabase
+    await syncRegionToSupabase(newRegion);
 
-    // Get region with statistics
+    logger.info(`✅ Region created and synced: ${newRegion.name}`);
+
     return await getRegionWithStats(newRegion.id);
 
   } catch (error) {
@@ -55,12 +57,11 @@ export const createRegion = async (regionData: CreateRegionInput) => {
 };
 
 /**
- * Update an existing region
+ * Update region with Supabase sync
  */
 export const updateRegion = async (regionId: string, updateData: UpdateRegionInput) => {
   logger.info(`Updating region: ${regionId}`);
 
-  // Check if region exists
   const existingRegion = await prisma.region.findUnique({
     where: { id: regionId }
   });
@@ -69,7 +70,6 @@ export const updateRegion = async (regionId: string, updateData: UpdateRegionInp
     throw new Error('Region not found');
   }
 
-  // Check for name conflicts if changing
   if (updateData.name && updateData.name !== existingRegion.name) {
     const nameConflict = await prisma.region.findFirst({
       where: { 
@@ -95,9 +95,11 @@ export const updateRegion = async (regionId: string, updateData: UpdateRegionInp
       }
     });
 
-    logger.info(`✅ Region updated: ${updatedRegion.id}`);
+    // Sync to Supabase
+    await syncRegionToSupabase(updatedRegion);
 
-    // Get region with updated statistics
+    logger.info(`✅ Region updated and synced: ${updatedRegion.name}`);
+
     return await getRegionWithStats(updatedRegion.id);
 
   } catch (error) {
@@ -107,7 +109,7 @@ export const updateRegion = async (regionId: string, updateData: UpdateRegionInp
 };
 
 /**
- * Delete a region with cascade deletion
+ * Delete region with complete cleanup and sync
  */
 export const deleteRegion = async (regionId: string) => {
   logger.info(`Deleting region: ${regionId}`);
@@ -126,49 +128,53 @@ export const deleteRegion = async (regionId: string) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Step 1: Delete all users in the region (this also handles Supabase cleanup)
+      // Delete users in the region
       const usersToDelete = region.users;
       let deletedUsersCount = 0;
 
       for (const user of usersToDelete) {
-        // Delete drone assignments for this user
+        // Delete drone assignments
         await tx.userDroneAssignment.deleteMany({
           where: { userId: user.id }
         });
 
-        // Clear operator assignments on drones
+        // Clear operator assignments
         await tx.drone.updateMany({
           where: { operatorId: user.id },
           data: { operatorId: null }
         });
 
-        // Delete user from local database
+        // Delete user from local DB
         await tx.user.delete({
           where: { id: user.id }
         });
 
-        // Delete from Supabase (non-blocking)
+        // Delete from Supabase Auth (non-blocking)
         if (user.supabaseUserId) {
           deleteSupabaseUser(user.supabaseUserId).catch(error => {
             logger.warn(`Failed to delete Supabase user ${user.supabaseUserId}:`, error);
           });
         }
 
+        // Delete from Supabase profiles (non-blocking)
+        deleteUserFromSupabase(user.id).catch(error => {
+          logger.warn(`Failed to delete user from Supabase profiles:`, error);
+        });
+
         deletedUsersCount++;
-        logger.info(`✅ Deleted user: ${user.username}`);
       }
 
-      // Step 2: Unassign all drones from this region (but keep the drones)
+      // Unassign drones
       const dronesInRegion = region.drones;
       await tx.drone.updateMany({
         where: { regionId },
         data: { 
           regionId: null,
-          operatorId: null // Clear operator since users are being deleted
+          operatorId: null
         }
       });
 
-      // Step 3: Delete the region
+      // Delete the region
       await tx.region.delete({
         where: { id: regionId }
       });
@@ -180,7 +186,10 @@ export const deleteRegion = async (regionId: string) => {
       };
     });
 
-    logger.info(`✅ Region deleted: ${region.name} (${result.deletedUsers} users, ${result.unassignedDrones} drones unassigned)`);
+    // Delete from Supabase regions table
+    await deleteRegionFromSupabase(regionId);
+
+    logger.info(`✅ Region deleted and synced: ${region.name}`);
 
     return {
       success: true,

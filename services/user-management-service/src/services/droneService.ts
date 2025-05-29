@@ -1,10 +1,11 @@
-// services/user-management-service/src/services/droneService.ts
+// src/services/droneService.ts - Enhanced with auto-sync
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
+import { syncDroneToSupabase, deleteDroneFromSupabase, syncAssignmentsToSupabase } from './supabaseDataSync';
 
-// Input Types
+// Keep existing interfaces...
 export interface CreateDroneInput {
-  id: string; // User-defined ID
+  id: string;
   model: 'FlyOS_MQ5' | 'FlyOS_MQ7' | 'FlyOS_MQ9';
   status?: 'ACTIVE' | 'STANDBY' | 'MAINTENANCE' | 'OFFLINE';
   regionId?: string | null;
@@ -30,12 +31,11 @@ export interface GetDronesOptions {
 }
 
 /**
- * Create a new drone
+ * Create drone with Supabase sync
  */
 export const createDrone = async (droneData: CreateDroneInput) => {
   logger.info(`Creating drone: ${droneData.id}`);
 
-  // Check if drone ID already exists
   const existingDrone = await prisma.drone.findUnique({
     where: { id: droneData.id }
   });
@@ -44,7 +44,7 @@ export const createDrone = async (droneData: CreateDroneInput) => {
     throw new Error(`Drone with ID '${droneData.id}' already exists`);
   }
 
-  // Validate region exists if provided
+  // Validation logic for region and operator
   if (droneData.regionId) {
     const region = await prisma.region.findUnique({
       where: { id: droneData.regionId }
@@ -59,7 +59,6 @@ export const createDrone = async (droneData: CreateDroneInput) => {
     }
   }
 
-  // Validate operator exists if provided
   if (droneData.operatorId) {
     const operator = await prisma.user.findUnique({
       where: { id: droneData.operatorId }
@@ -73,7 +72,6 @@ export const createDrone = async (droneData: CreateDroneInput) => {
       throw new Error(`Cannot assign drone to inactive operator: ${operator.username}`);
     }
 
-    // Check if operator is in the same region (if both have regions)
     if (droneData.regionId && operator.regionId && droneData.regionId !== operator.regionId) {
       throw new Error('Operator must be in the same region as the drone');
     }
@@ -92,14 +90,15 @@ export const createDrone = async (droneData: CreateDroneInput) => {
         region: true,
         operator: true,
         userAssignments: {
-          include: {
-            user: true
-          }
+          include: { user: true }
         }
       }
     });
 
-    logger.info(`✅ Drone created: ${newDrone.id}`);
+    // Sync to Supabase
+    await syncDroneToSupabase(newDrone);
+
+    logger.info(`✅ Drone created and synced: ${newDrone.id}`);
 
     return transformDroneResponse(newDrone);
 
@@ -110,12 +109,11 @@ export const createDrone = async (droneData: CreateDroneInput) => {
 };
 
 /**
- * Update an existing drone
+ * Update drone with Supabase sync
  */
 export const updateDrone = async (droneId: string, updateData: UpdateDroneInput) => {
   logger.info(`Updating drone: ${droneId}`);
 
-  // Check if drone exists
   const existingDrone = await prisma.drone.findUnique({
     where: { id: droneId }
   });
@@ -124,7 +122,7 @@ export const updateDrone = async (droneId: string, updateData: UpdateDroneInput)
     throw new Error('Drone not found');
   }
 
-  // Validate region exists if changing
+  // Validation logic for region and operator
   if (updateData.regionId && updateData.regionId !== existingDrone.regionId) {
     const region = await prisma.region.findUnique({
       where: { id: updateData.regionId }
@@ -139,7 +137,6 @@ export const updateDrone = async (droneId: string, updateData: UpdateDroneInput)
     }
   }
 
-  // Validate operator exists if changing
   if (updateData.operatorId && updateData.operatorId !== existingDrone.operatorId) {
     const operator = await prisma.user.findUnique({
       where: { id: updateData.operatorId }
@@ -153,7 +150,6 @@ export const updateDrone = async (droneId: string, updateData: UpdateDroneInput)
       throw new Error(`Cannot assign drone to inactive operator: ${operator.username}`);
     }
 
-    // Check region compatibility
     const finalRegionId = updateData.regionId !== undefined ? updateData.regionId : existingDrone.regionId;
     if (finalRegionId && operator.regionId && finalRegionId !== operator.regionId) {
       throw new Error('Operator must be in the same region as the drone');
@@ -174,14 +170,15 @@ export const updateDrone = async (droneId: string, updateData: UpdateDroneInput)
         region: true,
         operator: true,
         userAssignments: {
-          include: {
-            user: true
-          }
+          include: { user: true }
         }
       }
     });
 
-    logger.info(`✅ Drone updated: ${updatedDrone.id}`);
+    // Sync to Supabase
+    await syncDroneToSupabase(updatedDrone);
+
+    logger.info(`✅ Drone updated and synced: ${updatedDrone.id}`);
 
     return transformDroneResponse(updatedDrone);
 
@@ -192,7 +189,7 @@ export const updateDrone = async (droneId: string, updateData: UpdateDroneInput)
 };
 
 /**
- * Delete a drone
+ * Delete drone with complete cleanup and sync
  */
 export const deleteDrone = async (droneId: string) => {
   logger.info(`Deleting drone: ${droneId}`);
@@ -210,12 +207,12 @@ export const deleteDrone = async (droneId: string) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Step 1: Remove all user assignments
+      // Remove all user assignments
       const removedAssignments = await tx.userDroneAssignment.deleteMany({
         where: { droneId }
       });
 
-      // Step 2: Delete the drone
+      // Delete the drone
       await tx.drone.delete({
         where: { id: droneId }
       });
@@ -225,7 +222,10 @@ export const deleteDrone = async (droneId: string) => {
       };
     });
 
-    logger.info(`✅ Drone deleted: ${droneId} (${result.removedAssignments} assignments removed)`);
+    // Delete from Supabase
+    await deleteDroneFromSupabase(droneId);
+
+    logger.info(`✅ Drone deleted and synced: ${droneId}`);
 
     return {
       success: true,
@@ -234,6 +234,67 @@ export const deleteDrone = async (droneId: string) => {
 
   } catch (error) {
     logger.error('Error deleting drone:', error);
+    throw error;
+  }
+};
+
+/**
+ * Assign drone to user with Supabase sync
+ */
+export const assignDroneToUser = async (droneId: string, userId: string) => {
+  logger.info(`Assigning drone ${droneId} to user ${userId}`);
+
+  const drone = await prisma.drone.findUnique({
+    where: { id: droneId }
+  });
+  
+  if (!drone) {
+    throw new Error('Drone not found');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId }
+  });
+  
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  if (user.status !== 'ACTIVE') {
+    throw new Error(`Cannot assign drone to inactive user: ${user.username}`);
+  }
+
+  if (drone.regionId && user.regionId && drone.regionId !== user.regionId) {
+    throw new Error('User must be in the same region as the drone');
+  }
+
+  try {
+    const assignment = await prisma.userDroneAssignment.upsert({
+      where: {
+        userId_droneId: {
+          userId,
+          droneId
+        }
+      },
+      update: {
+        assignedAt: new Date()
+      },
+      create: {
+        userId,
+        droneId,
+        assignedAt: new Date()
+      }
+    });
+
+    // Sync assignment to Supabase
+    await syncAssignmentsToSupabase([assignment]);
+
+    logger.info(`✅ Drone ${droneId} assigned to user ${userId} and synced`);
+
+    return { success: true };
+
+  } catch (error) {
+    logger.error('Error assigning drone to user:', error);
     throw error;
   }
 };
@@ -257,7 +318,6 @@ export const getDrones = async (options: GetDronesOptions) => {
   if (requestingUserRole === 'REGIONAL_HQ') {
     where.regionId = requestingUserRegionId;
   } else if (requestingUserRole === 'OPERATOR') {
-    // Operators can only see drones assigned to them
     where.OR = [
       { operatorId: requestingUserId },
       { 
@@ -269,7 +329,6 @@ export const getDrones = async (options: GetDronesOptions) => {
       }
     ];
   }
-  // MAIN_HQ can see all drones
   
   const [drones, totalCount] = await Promise.all([
     prisma.drone.findMany({
@@ -280,9 +339,7 @@ export const getDrones = async (options: GetDronesOptions) => {
         region: true,
         operator: true,
         userAssignments: {
-          include: {
-            user: true
-          }
+          include: { user: true }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -290,7 +347,6 @@ export const getDrones = async (options: GetDronesOptions) => {
     prisma.drone.count({ where })
   ]);
   
-  // Transform drones for frontend
   const transformedDrones = drones.map(transformDroneResponse);
   
   return {
@@ -311,9 +367,7 @@ export const getDroneById = async (droneId: string) => {
       region: true,
       operator: true,
       userAssignments: {
-        include: {
-          user: true
-        }
+        include: { user: true }
       }
     }
   });
@@ -323,92 +377,6 @@ export const getDroneById = async (droneId: string) => {
   }
 
   return transformDroneResponse(drone);
-};
-
-/**
- * Assign drone to a user (many-to-many relationship)
- */
-export const assignDroneToUser = async (droneId: string, userId: string) => {
-  logger.info(`Assigning drone ${droneId} to user ${userId}`);
-
-  // Validate drone exists
-  const drone = await prisma.drone.findUnique({
-    where: { id: droneId }
-  });
-  
-  if (!drone) {
-    throw new Error('Drone not found');
-  }
-
-  // Validate user exists
-  const user = await prisma.user.findUnique({
-    where: { id: userId }
-  });
-  
-  if (!user) {
-    throw new Error('User not found');
-  }
-
-  if (user.status !== 'ACTIVE') {
-    throw new Error(`Cannot assign drone to inactive user: ${user.username}`);
-  }
-
-  // Check region compatibility
-  if (drone.regionId && user.regionId && drone.regionId !== user.regionId) {
-    throw new Error('User must be in the same region as the drone');
-  }
-
-  try {
-    // Create assignment (ignore if already exists)
-    await prisma.userDroneAssignment.upsert({
-      where: {
-        userId_droneId: {
-          userId,
-          droneId
-        }
-      },
-      update: {
-        assignedAt: new Date()
-      },
-      create: {
-        userId,
-        droneId,
-        assignedAt: new Date()
-      }
-    });
-
-    logger.info(`✅ Drone ${droneId} assigned to user ${userId}`);
-
-    return { success: true };
-
-  } catch (error) {
-    logger.error('Error assigning drone to user:', error);
-    throw error;
-  }
-};
-
-/**
- * Unassign drone from a user
- */
-export const unassignDroneFromUser = async (droneId: string, userId: string) => {
-  logger.info(`Unassigning drone ${droneId} from user ${userId}`);
-
-  try {
-    await prisma.userDroneAssignment.deleteMany({
-      where: {
-        userId,
-        droneId
-      }
-    });
-
-    logger.info(`✅ Drone ${droneId} unassigned from user ${userId}`);
-
-    return { success: true };
-
-  } catch (error) {
-    logger.error('Error unassigning drone from user:', error);
-    throw error;
-  }
 };
 
 /**
