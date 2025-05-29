@@ -12,9 +12,9 @@ import { logger } from './utils/logger';
 import { initializeWithSupabaseSync } from './services/supabaseDataSync';
 
 // Import routes
-import userRoutes from './routes/userRoutes';
-import regionRoutes from './routes/regionRoutes';
-import droneRoutes from './routes/droneRoutes';
+import userRoutes from './routes/users';
+import regionRoutes from './routes/regions';
+import droneRoutes from './routes/drones';
 
 // Initialize Express app
 const app = express();

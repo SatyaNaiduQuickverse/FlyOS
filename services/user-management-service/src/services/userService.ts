@@ -447,3 +447,10 @@ export const getUserById = async (userId: string) => {
     } : null
   };
 };
+export const userService = {
+  createUser,
+  updateUser,
+  deleteUser,
+  getAllUsers: getUsers,
+  getUserById
+};

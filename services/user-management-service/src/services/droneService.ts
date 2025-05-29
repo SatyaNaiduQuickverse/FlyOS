@@ -286,7 +286,7 @@ export const assignDroneToUser = async (droneId: string, userId: string) => {
       }
     });
 
-    // Sync assignment to Supabase
+    // Sync assignment to Supabase - FIXED: Pass array parameter
     await syncAssignmentsToSupabase([assignment]);
 
     logger.info(`✅ Drone ${droneId} assigned to user ${userId} and synced`);

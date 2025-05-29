@@ -292,3 +292,10 @@ const getRegionWithStats = async (regionId: string) => {
     }))
   };
 };
+export const regionService = {
+  createRegion,
+  updateRegion,
+  deleteRegion,
+  getAllRegions: getRegions,
+  getRegionById
+};

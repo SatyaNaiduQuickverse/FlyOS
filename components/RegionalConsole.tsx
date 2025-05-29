@@ -1,18 +1,21 @@
-// components/RegionalConsole.tsx
+// components/RegionalConsole.tsx - Connected to Backend API
 import React, { useState, useEffect } from 'react';
 import { 
   Globe, Shield, CirclePlus, CircleMinus, 
   RefreshCcw, AlertTriangle, CheckCircle,
   MapPin, Maximize, ChevronDown, ChevronUp
 } from 'lucide-react';
+import { useAuth } from '../lib/auth';
 
 // Placeholder for DroneLocationMap component
 const DroneLocationMap = ({ location, expanded }) => (
   <div className="w-full h-full bg-gray-800 rounded flex items-center justify-center text-gray-400">
     <div className="text-center">
       <MapPin className="h-8 w-8 mx-auto mb-2" />
-      <div className="text-sm">Map: {location.city}</div>
-      <div className="text-xs mt-1">{location.lat.toFixed(4)}, {location.lng.toFixed(4)}</div>
+      <div className="text-sm">Map: {location?.city || 'Unknown'}</div>
+      <div className="text-xs mt-1">
+        {location?.lat?.toFixed(4) || '0.0000'}, {location?.lng?.toFixed(4) || '0.0000'}
+      </div>
     </div>
   </div>
 );
@@ -24,22 +27,17 @@ const GradientText = ({ text, className }) => (
   </span>
 );
 
-// Region interface
+// Backend API interfaces
 interface Region {
   id: string;
   name: string;
-  commanderName: string;
+  commanderName: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   area: string;
-}
-
-// Drone interface
-interface DroneLocation {
-  lat: number;
-  lng: number;
-  timestamp: string;
-  area: string;
-  city: string;
+  userCount: number;
+  droneCount: number;
+  users: any[];
+  drones: any[];
 }
 
 interface Drone {
@@ -47,81 +45,35 @@ interface Drone {
   model: string;
   status: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE' | 'STANDBY';
   regionId: string | null;
-  lastMaintenance: string;
-  batteryStatus: number;
-  flightHours: number;
-  lastActiveTime: string;
-  location: DroneLocation | null;
+  operatorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  region?: Region;
+  operator?: any;
+  assignedUsers: any[];
+  // Mock location data for display
+  location?: {
+    lat: number;
+    lng: number;
+    timestamp: string;
+    area: string;
+    city: string;
+  };
+  batteryStatus?: number;
+  flightHours?: number;
+  lastActiveTime?: string;
+  lastMaintenance?: string;
 }
 
-// Notification interface
 interface Notification {
   message: string;
   type: 'success' | 'error';
 }
 
-// Mock data - will be replaced with API calls
-const MOCK_REGIONS: Region[] = [
-  { id: 'east', name: 'Eastern Region', commanderName: 'Col. Sarah Mitchell', status: 'ACTIVE', area: 'Eastern Seaboard' },
-  { id: 'west', name: 'Western Region', commanderName: 'Maj. David Chen', status: 'ACTIVE', area: 'Pacific Coast' },
-  { id: 'north', name: 'Northern Region', commanderName: 'Lt. Col. James Wilson', status: 'INACTIVE', area: 'Great Lakes' },
-  { id: 'south', name: 'Southern Region', commanderName: 'Col. Robert Garcia', status: 'ACTIVE', area: 'Gulf Coast' },
-];
-
-const MOCK_DRONES: Drone[] = [
-  { 
-    id: 'drone-001', model: 'FlyOS-MQ5', status: 'ACTIVE', regionId: 'east', 
-    lastMaintenance: '2025-04-15', batteryStatus: 98, flightHours: 124, 
-    lastActiveTime: '2025-05-02T09:30:00Z',
-    location: { lat: 40.7128, lng: -74.0060, timestamp: '2025-05-02T09:30:00Z', area: 'Eastern Seaboard', city: 'New York' }
-  },
-  { 
-    id: 'drone-002', model: 'FlyOS-MQ5', status: 'ACTIVE', regionId: 'east', 
-    lastMaintenance: '2025-04-10', batteryStatus: 87, flightHours: 156, 
-    lastActiveTime: '2025-05-02T10:45:00Z',
-    location: { lat: 39.9526, lng: -75.1652, timestamp: '2025-05-02T10:45:00Z', area: 'Eastern Seaboard', city: 'Philadelphia' }
-  },
-  { 
-    id: 'drone-003', model: 'FlyOS-MQ7', status: 'MAINTENANCE', regionId: 'west', 
-    lastMaintenance: '2025-05-01', batteryStatus: 100, flightHours: 89, 
-    lastActiveTime: '2025-04-30T16:20:00Z',
-    location: { lat: 37.7749, lng: -122.4194, timestamp: '2025-04-30T16:20:00Z', area: 'Pacific Coast', city: 'San Francisco' }
-  },
-  { 
-    id: 'drone-004', model: 'FlyOS-MQ7', status: 'ACTIVE', regionId: 'west', 
-    lastMaintenance: '2025-04-22', batteryStatus: 92, flightHours: 114, 
-    lastActiveTime: '2025-05-02T08:15:00Z',
-    location: { lat: 34.0522, lng: -118.2437, timestamp: '2025-05-02T08:15:00Z', area: 'Pacific Coast', city: 'Los Angeles' }
-  },
-  { 
-    id: 'drone-005', model: 'FlyOS-MQ9', status: 'ACTIVE', regionId: 'south', 
-    lastMaintenance: '2025-04-18', batteryStatus: 94, flightHours: 78, 
-    lastActiveTime: '2025-05-02T11:10:00Z',
-    location: { lat: 29.7604, lng: -95.3698, timestamp: '2025-05-02T11:10:00Z', area: 'Gulf Coast', city: 'Houston' }
-  },
-  { 
-    id: 'drone-006', model: 'FlyOS-MQ9', status: 'OFFLINE', regionId: null, 
-    lastMaintenance: '2025-04-05', batteryStatus: 0, flightHours: 203, 
-    lastActiveTime: '2025-04-05T18:45:00Z',
-    location: null
-  },
-  { 
-    id: 'drone-007', model: 'FlyOS-MQ5', status: 'STANDBY', regionId: null, 
-    lastMaintenance: '2025-04-30', batteryStatus: 100, flightHours: 12, 
-    lastActiveTime: '2025-04-30T12:30:00Z',
-    location: { lat: 41.8781, lng: -87.6298, timestamp: '2025-04-30T12:30:00Z', area: 'Great Lakes', city: 'Chicago' }
-  },
-  { 
-    id: 'drone-008', model: 'FlyOS-MQ7', status: 'ACTIVE', regionId: 'south', 
-    lastMaintenance: '2025-04-28', batteryStatus: 89, flightHours: 92, 
-    lastActiveTime: '2025-05-02T09:55:00Z',
-    location: { lat: 25.7617, lng: -80.1918, timestamp: '2025-05-02T09:55:00Z', area: 'Gulf Coast', city: 'Miami' }
-  },
-];
-
 const RegionalConsole: React.FC = () => {
-  const [regions, setRegions] = useState<Region[]>(MOCK_REGIONS);
-  const [drones, setDrones] = useState<Drone[]>(MOCK_DRONES);
+  const { token } = useAuth();
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [drones, setDrones] = useState<Drone[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [unassignedOnly, setUnassignedOnly] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -129,17 +81,117 @@ const RegionalConsole: React.FC = () => {
   const [expandedDrone, setExpandedDrone] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<string | null>(null);
 
-  // Simulate fetching data from API
-  useEffect(() => {
+  // API call functions
+  const fetchRegions = async () => {
+    try {
+      const response = await fetch('http://localhost:4003/api/regions', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch regions');
+      
+      const data = await response.json();
+      return data.regions || [];
+    } catch (error) {
+      console.error('Error fetching regions:', error);
+      throw error;
+    }
+  };
+
+  const fetchDrones = async () => {
+    try {
+      const response = await fetch('http://localhost:4003/api/drones', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch drones');
+      
+      const data = await response.json();
+      return data.drones || [];
+    } catch (error) {
+      console.error('Error fetching drones:', error);
+      throw error;
+    }
+  };
+
+  const updateDroneRegion = async (droneId: string, regionId: string | null) => {
+    try {
+      const response = await fetch(`http://localhost:4003/api/drones/${droneId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          regionId: regionId,
+          operatorId: null // Unassign operator when changing regions
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to update drone');
+      
+      const data = await response.json();
+      return data.drone;
+    } catch (error) {
+      console.error('Error updating drone:', error);
+      throw error;
+    }
+  };
+
+  // Enhanced drone data with mock location/status info
+  const enhanceDroneData = (drone: Drone): Drone => {
+    // Add mock location data based on region
+    const locationMap = {
+      'east': { lat: 40.7128, lng: -74.0060, city: 'New York', area: 'Eastern Seaboard' },
+      'west': { lat: 37.7749, lng: -122.4194, city: 'San Francisco', area: 'Pacific Coast' },
+      'north': { lat: 41.8781, lng: -87.6298, city: 'Chicago', area: 'Great Lakes' },
+      'south': { lat: 29.7604, lng: -95.3698, city: 'Houston', area: 'Gulf Coast' }
+    };
+
+    const location = drone.regionId && locationMap[drone.regionId] 
+      ? { ...locationMap[drone.regionId], timestamp: new Date().toISOString() }
+      : null;
+
+    return {
+      ...drone,
+      location,
+      batteryStatus: Math.floor(Math.random() * 40) + 60, // 60-100%
+      flightHours: Math.floor(Math.random() * 200) + 50,  // 50-250 hours
+      lastActiveTime: new Date(Date.now() - Math.random() * 86400000).toISOString(), // Last 24 hours
+      lastMaintenance: new Date(Date.now() - Math.random() * 2592000000).toISOString() // Last 30 days
+    };
+  };
+
+  // Load data from backend
+  const loadData = async () => {
     setIsLoading(true);
-    
-    // Simulate network delay
-    setTimeout(() => {
-      setRegions(MOCK_REGIONS);
-      setDrones(MOCK_DRONES);
+    try {
+      const [regionsData, dronesData] = await Promise.all([
+        fetchRegions(),
+        fetchDrones()
+      ]);
+      
+      setRegions(regionsData);
+      setDrones(dronesData.map(enhanceDroneData));
+    } catch (error) {
+      showNotification('Failed to load data', 'error');
+    } finally {
       setIsLoading(false);
-    }, 800);
-  }, []);
+    }
+  };
+
+  // Initial data load
+  useEffect(() => {
+    if (token) {
+      loadData();
+    }
+  }, [token]);
 
   // Filter drones based on selected region and filters
   const filteredDrones = drones.filter(drone => {
@@ -151,7 +203,7 @@ const RegionalConsole: React.FC = () => {
     }
     return true;
   });
-  
+
   // Group drones by region for the summary
   const dronesByRegion = drones.reduce<Record<string, Drone[]>>((acc, drone) => {
     const regionId = drone.regionId || 'unassigned';
@@ -168,59 +220,57 @@ const RegionalConsole: React.FC = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  const handleRefresh = () => {
-    setIsLoading(true);
-    
-    // Simulate network delay
-    setTimeout(() => {
-      // This would be an API call in production
-      setRegions(MOCK_REGIONS);
-      setDrones(MOCK_DRONES);
-      setIsLoading(false);
-      showNotification('Data refreshed successfully');
-    }, 800);
+  const handleRefresh = async () => {
+    await loadData();
+    showNotification('Data refreshed successfully');
   };
 
-  const handleAssignDrone = (droneId: string, regionId: string) => {
+  const handleAssignDrone = async (droneId: string, regionId: string) => {
     setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      // Update local state
-      setDrones(drones.map(drone => 
-        drone.id === droneId ? { ...drone, regionId } : drone
-      ));
+    try {
+      const updatedDrone = await updateDroneRegion(droneId, regionId);
       
-      const drone = drones.find(d => d.id === droneId);
+      // Update local state
+      setDrones(prevDrones => 
+        prevDrones.map(drone => 
+          drone.id === droneId 
+            ? enhanceDroneData({ ...drone, regionId, region: regions.find(r => r.id === regionId) })
+            : drone
+        )
+      );
+      
       const region = regions.find(r => r.id === regionId);
-      
-      if (drone && region) {
-        showNotification(`${drone.id} assigned to ${region.name}`);
-      }
+      showNotification(`${droneId} assigned to ${region?.name || regionId}`);
+    } catch (error) {
+      showNotification('Failed to assign drone', 'error');
+    } finally {
       setIsLoading(false);
-    }, 600);
+    }
   };
 
-  const handleUnassignDrone = (droneId: string) => {
+  const handleUnassignDrone = async (droneId: string) => {
     setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      // Update local state
+    try {
       const drone = drones.find(d => d.id === droneId);
-      if (drone && drone.regionId) {
-        const previousRegion = regions.find(r => r.id === drone.regionId);
-        
-        setDrones(drones.map(d => 
-          d.id === droneId ? { ...d, regionId: null } : d
-        ));
-        
-        if (previousRegion) {
-          showNotification(`${drone.id} removed from ${previousRegion.name}`);
-        }
-      }
+      const previousRegion = drone?.region;
+      
+      await updateDroneRegion(droneId, null);
+      
+      // Update local state
+      setDrones(prevDrones => 
+        prevDrones.map(d => 
+          d.id === droneId 
+            ? enhanceDroneData({ ...d, regionId: null, region: undefined })
+            : d
+        )
+      );
+      
+      showNotification(`${droneId} removed from ${previousRegion?.name || 'region'}`);
+    } catch (error) {
+      showNotification('Failed to unassign drone', 'error');
+    } finally {
       setIsLoading(false);
-    }, 600);
+    }
   };
 
   const toggleExpandDrone = (droneId: string) => {
@@ -228,7 +278,6 @@ const RegionalConsole: React.FC = () => {
       setExpandedDrone(null);
     } else {
       setExpandedDrone(droneId);
-      // Close expanded map when switching drones
       setExpandedMap(null);
     }
   };
@@ -238,7 +287,6 @@ const RegionalConsole: React.FC = () => {
       setExpandedMap(null);
     } else {
       setExpandedMap(droneId);
-      // Ensure the drone details are expanded when expanding map
       setExpandedDrone(droneId);
     }
   };
@@ -277,6 +325,19 @@ const RegionalConsole: React.FC = () => {
     if (level >= 20) return 'bg-amber-500/20 text-amber-300';
     return 'bg-rose-500/20 text-rose-300';
   };
+
+  // Show loading if no token
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-black text-gray-200 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-600 border-t-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-gray-200">
       <div className="max-w-7xl mx-auto">
@@ -299,7 +360,7 @@ const RegionalConsole: React.FC = () => {
               disabled={isLoading}
               className="bg-gray-800 p-2 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50 group"
             >
-              <RefreshCcw className="h-5 w-5 group-hover:text-blue-400 transition-colors" />
+              <RefreshCcw className={`h-5 w-5 group-hover:text-blue-400 transition-colors ${isLoading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
@@ -349,7 +410,7 @@ const RegionalConsole: React.FC = () => {
                         </div>
                       </div>
                       
-                      <div className="text-sm text-gray-400 mb-2">{region.commanderName}</div>
+                      <div className="text-sm text-gray-400 mb-2">{region.commanderName || 'No Commander'}</div>
                       <div className="text-sm text-gray-500 mb-3">{region.area}</div>
                       
                       <div className="grid grid-cols-2 gap-2 mt-4 text-sm">
@@ -467,14 +528,14 @@ const RegionalConsole: React.FC = () => {
                             
                             <div className="text-sm">
                               <div className="text-gray-400 mb-1">Battery</div>
-                              <div className={`text-sm px-2 py-1 rounded inline-block ${getBatteryStyles(drone.batteryStatus)}`}>
-                                {drone.batteryStatus}%
+                              <div className={`text-sm px-2 py-1 rounded inline-block ${getBatteryStyles(drone.batteryStatus || 0)}`}>
+                                {drone.batteryStatus || 0}%
                               </div>
                             </div>
                             
                             <div className="text-sm">
                               <div className="text-gray-400 mb-1">Last Active</div>
-                              <div className="text-white">{formatDateTime(drone.lastActiveTime)}</div>
+                              <div className="text-white">{formatDateTime(drone.lastActiveTime || drone.updatedAt)}</div>
                             </div>
                             
                             <div className="text-sm">
@@ -549,17 +610,17 @@ const RegionalConsole: React.FC = () => {
                               <div className="grid grid-cols-3 gap-3">
                                 <div className="bg-gray-900/70 p-3 rounded-lg">
                                   <div className="text-gray-400 text-xs mb-1">Flight Hours</div>
-                                  <div className="text-2xl font-light text-white">{drone.flightHours}</div>
+                                  <div className="text-2xl font-light text-white">{drone.flightHours || 0}</div>
                                   <div className="text-blue-400 text-xs">HOURS</div>
                                 </div>
                                 <div className="bg-gray-900/70 p-3 rounded-lg">
                                   <div className="text-gray-400 text-xs mb-1">Last Maintenance</div>
-                                  <div className="text-md font-light text-white">{formatDate(drone.lastMaintenance)}</div>
+                                  <div className="text-md font-light text-white">{formatDate(drone.lastMaintenance || drone.updatedAt)}</div>
                                 </div>
                                 <div className="bg-gray-900/70 p-3 rounded-lg">
                                   <div className="text-gray-400 text-xs mb-1">Region</div>
                                   <div className="text-md font-light text-white">
-                                    {drone.regionId 
+                                    {drone.region?.name || drone.regionId 
                                       ? regions.find(r => r.id === drone.regionId)?.name || 'Unknown' 
                                       : 'Unassigned'}
                                   </div>
@@ -572,7 +633,7 @@ const RegionalConsole: React.FC = () => {
                                   <div className="flex items-center gap-3">
                                     <div className="text-sm text-gray-400">
                                       Assigned to: <span className="text-blue-300">
-                                        {regions.find(r => r.id === drone.regionId)?.name || 'Unknown'}
+                                        {drone.region?.name || regions.find(r => r.id === drone.regionId)?.name || 'Unknown'}
                                       </span>
                                     </div>
                                     <button
