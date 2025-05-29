@@ -1,4 +1,4 @@
-// src/services/supabaseDataSync.ts
+// src/services/supabaseDataSync.ts - COMPLETE PRODUCTION VERSION
 import { createClient } from '@supabase/supabase-js';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
@@ -7,6 +7,45 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+/**
+ * Map Supabase drone model names to Prisma enum values
+ */
+const mapDroneModel = (supabaseModel: string): any => {
+  const modelMap: { [key: string]: string } = {
+    // Legacy drone names from Supabase
+    'MQ-9 Reaper': 'FlyOS_MQ9',
+    'MQ-1 Predator': 'FlyOS_MQ5',
+    'RQ-4 Global Hawk': 'FlyOS_MQ7',
+    'RQ-170 Sentinel': 'FlyOS_MQ7',
+    // Direct FlyOS mappings
+    'FlyOS-MQ5': 'FlyOS_MQ5',
+    'FlyOS-MQ7': 'FlyOS_MQ7',
+    'FlyOS-MQ9': 'FlyOS_MQ9',
+    // Prisma enum format
+    'FlyOS_MQ5': 'FlyOS_MQ5',
+    'FlyOS_MQ7': 'FlyOS_MQ7',
+    'FlyOS_MQ9': 'FlyOS_MQ9'
+  };
+  
+  return modelMap[supabaseModel] || 'FlyOS_MQ5';
+};
+
+/**
+ * Map Supabase status to Prisma enum values
+ */
+const mapDroneStatus = (supabaseStatus: string): any => {
+  const validStatuses = ['ACTIVE', 'STANDBY', 'MAINTENANCE', 'OFFLINE'];
+  return validStatuses.includes(supabaseStatus) ? supabaseStatus : 'STANDBY';
+};
+
+/**
+ * Map user role to Prisma enum values
+ */
+const mapUserRole = (supabaseRole: string): any => {
+  const validRoles = ['MAIN_HQ', 'REGIONAL_HQ', 'OPERATOR'];
+  return validRoles.includes(supabaseRole) ? supabaseRole : 'OPERATOR';
+};
 
 /**
  * Sync local user to Supabase profiles table
@@ -31,7 +70,6 @@ export const syncUserToSupabase = async (localUser: any) => {
     logger.debug(`✅ Synced user to Supabase: ${localUser.username}`);
   } catch (error: any) {
     logger.warn(`⚠️ Failed to sync user ${localUser.username}:`, error.message);
-    // Don't throw - local operations should continue
   }
 };
 
@@ -156,13 +194,13 @@ export const syncAssignmentsToSupabase = async (assignments: any[]) => {
 };
 
 /**
- * Load all data from Supabase and recreate in local DB
+ * Load all data from Supabase and recreate in local DB - PRODUCTION VERSION
  */
 export const loadAllDataFromSupabase = async () => {
   try {
     logger.info('🔄 Loading data from Supabase...');
 
-    // Load regions first
+    // Load regions first (no dependencies)
     const { data: supabaseRegions } = await supabase
       .from('regions')
       .select('*')
@@ -170,86 +208,108 @@ export const loadAllDataFromSupabase = async () => {
 
     if (supabaseRegions?.length) {
       for (const region of supabaseRegions) {
-        await prisma.region.upsert({
-          where: { id: region.id },
-          update: {
-            name: region.name,
-            area: region.area,
-            commanderName: region.commander_name,
-            status: region.status as any
-          },
-          create: {
-            id: region.id,
-            name: region.name,
-            area: region.area,
-            commanderName: region.commander_name,
-            status: region.status as any
-          }
-        });
+        try {
+          await prisma.region.upsert({
+            where: { id: region.id },
+            update: {
+              name: region.name,
+              area: region.area,
+              commanderName: region.commander_name,
+              status: region.status === 'ACTIVE' ? 'ACTIVE' as any : 'INACTIVE' as any
+            },
+            create: {
+              id: region.id,
+              name: region.name,
+              area: region.area,
+              commanderName: region.commander_name,
+              status: region.status === 'ACTIVE' ? 'ACTIVE' as any : 'INACTIVE' as any
+            }
+          });
+        } catch (regionError: any) {
+          logger.error(`Failed to create region ${region.id}:`, regionError.message);
+        }
       }
       logger.info(`✅ Loaded ${supabaseRegions.length} regions`);
     }
 
-    // Load users
+    // Load users with validation
     const { data: supabaseUsers } = await supabase
       .from('profiles')
       .select('*')
       .order('created_at');
 
+    let loadedUsers = 0;
     if (supabaseUsers?.length) {
       for (const user of supabaseUsers) {
-        await prisma.user.upsert({
-          where: { id: user.id },
-          update: {
-            username: user.username,
-            fullName: user.full_name,
-            email: user.email,
-            role: user.role as any,
-            regionId: user.region_id,
-            status: user.status as any,
-            supabaseUserId: user.supabase_user_id
-          },
-          create: {
-            id: user.id,
-            username: user.username,
-            fullName: user.full_name,
-            email: user.email,
-            role: user.role as any,
-            regionId: user.region_id,
-            status: user.status as any,
-            supabaseUserId: user.supabase_user_id
-          }
-        });
+        // Skip users without required fields
+        if (!user.email || !user.username) {
+          logger.warn(`⚠️ Skipping incomplete user: ${user.username || user.id} (missing email or username)`);
+          continue;
+        }
+
+        try {
+          await prisma.user.upsert({
+            where: { id: user.id },
+            update: {
+              username: user.username,
+              fullName: user.full_name || 'User',
+              email: user.email,
+              role: mapUserRole(user.role) as any,
+              regionId: user.region_id,
+              status: user.status === 'ACTIVE' ? 'ACTIVE' as any : 'INACTIVE' as any,
+              supabaseUserId: user.supabase_user_id
+            },
+            create: {
+              id: user.id,
+              username: user.username,
+              fullName: user.full_name || 'User',
+              email: user.email,
+              role: mapUserRole(user.role) as any,
+              regionId: user.region_id,
+              status: user.status === 'ACTIVE' ? 'ACTIVE' as any : 'INACTIVE' as any,
+              supabaseUserId: user.supabase_user_id
+            }
+          });
+          loadedUsers++;
+        } catch (userError: any) {
+          logger.error(`Failed to create user ${user.username}:`, userError.message);
+        }
       }
-      logger.info(`✅ Loaded ${supabaseUsers.length} users`);
+      logger.info(`✅ Loaded ${loadedUsers} users`);
     }
 
-    // Load drones
+    // Load drones with model mapping
     const { data: supabaseDrones } = await supabase
       .from('drones')
       .select('*')
       .order('created_at');
 
+    let loadedDrones = 0;
     if (supabaseDrones?.length) {
       for (const drone of supabaseDrones) {
-        await prisma.drone.upsert({
-          where: { id: drone.id },
-          update: {
-            model: drone.model as any,
-            status: drone.status as any,
-            regionId: drone.region_id,
-            operatorId: drone.operator_id
-          },
-          create: {
-            id: drone.id,
-            model: drone.model as any,
-            status: drone.status as any,
-            regionId: drone.region_id,
-            operatorId: drone.operator_id
-          }
-        });
+        try {
+          await prisma.drone.upsert({
+            where: { id: drone.id },
+            update: {
+              model: mapDroneModel(drone.model) as any,
+              status: mapDroneStatus(drone.status) as any,
+              regionId: drone.region_id,
+              operatorId: drone.operator_id
+            },
+            create: {
+              id: drone.id,
+              model: mapDroneModel(drone.model) as any,
+              status: mapDroneStatus(drone.status) as any,
+              regionId: drone.region_id,
+              operatorId: drone.operator_id
+            }
+          });
+          loadedDrones++;
+        } catch (droneError: any) {
+          logger.error(`Failed to create drone ${drone.id}:`, droneError.message);
+        }
       }
-      logger.info(`✅ Loaded ${supabaseDrones.length} drones`);
+      logger.info(`✅ Loaded ${loadedDrones} drones`);
     }
 
     // Load assignments
@@ -257,6 +317,7 @@ export const loadAllDataFromSupabase = async () => {
       .from('user_drone_assignments')
       .select('*');
 
+    let loadedAssignments = 0;
     if (supabaseAssignments?.length) {
       for (const assignment of supabaseAssignments) {
         try {
@@ -277,19 +338,19 @@ export const loadAllDataFromSupabase = async () => {
               assignedAt: new Date(assignment.assigned_at)
             }
           });
-        } catch (error) {
-          // Skip invalid assignments
+          loadedAssignments++;
+        } catch (assignmentError: any) {
           logger.debug(`Skipped invalid assignment: ${assignment.id}`);
         }
       }
-      logger.info(`✅ Loaded ${supabaseAssignments.length} assignments`);
+      logger.info(`✅ Loaded ${loadedAssignments} assignments`);
     }
 
     return {
       regions: supabaseRegions?.length || 0,
-      users: supabaseUsers?.length || 0,
-      drones: supabaseDrones?.length || 0,
-      assignments: supabaseAssignments?.length || 0
+      users: loadedUsers,
+      drones: loadedDrones,
+      assignments: loadedAssignments
     };
 
   } catch (error: any) {
@@ -342,16 +403,16 @@ export const pushAllDataToSupabase = async () => {
 };
 
 /**
- * Initialize with Supabase sync - try to load, fallback to create
+ * Initialize with Supabase sync - PRODUCTION VERSION
  */
 export const initializeWithSupabaseSync = async () => {
   try {
     logger.info('🚀 Initializing with Supabase sync...');
 
-    // Try to load existing data
+    // Try to load existing data first
     const loaded = await loadAllDataFromSupabase();
     
-    if (loaded.users > 0) {
+    if (loaded.users > 0 || loaded.regions > 0) {
       logger.info(`✅ Restored from Supabase: ${loaded.users} users, ${loaded.regions} regions, ${loaded.drones} drones`);
       return loaded;
     }
@@ -360,46 +421,59 @@ export const initializeWithSupabaseSync = async () => {
     logger.info('🆕 Creating initial dataset...');
     
     // Create regions first
-    const regions = [
-      { id: 'east-region', name: 'Eastern Region', area: 'Eastern Seaboard', commanderName: 'Col. Sarah Mitchell', status: 'ACTIVE' as const },
-      { id: 'west-region', name: 'Western Region', area: 'Pacific Coast', commanderName: 'Maj. David Chen', status: 'ACTIVE' as const },
-      { id: 'south-region', name: 'Southern Region', area: 'Gulf Coast', commanderName: 'Col. Robert Garcia', status: 'ACTIVE' as const }
+    const regionsData = [
+      { id: 'east-region', name: 'Eastern Region', area: 'Eastern Seaboard', commanderName: 'Col. Sarah Mitchell', status: 'ACTIVE' as any },
+      { id: 'west-region', name: 'Western Region', area: 'Pacific Coast', commanderName: 'Maj. David Chen', status: 'ACTIVE' as any },
+      { id: 'south-region', name: 'Southern Region', area: 'Gulf Coast', commanderName: 'Col. Robert Garcia', status: 'ACTIVE' as any }
     ];
 
-    for (const regionData of regions) {
-      const region = await prisma.region.create({ data: regionData });
+    for (const regionData of regionsData) {
+      const region = await prisma.region.upsert({
+        where: { id: regionData.id },
+        update: regionData,
+        create: regionData
+      });
       await syncRegionToSupabase(region);
     }
 
-    // Create users
-    const users = [
-      { username: 'main_admin', fullName: 'Main Administrator', email: 'main@flyos.mil', role: 'MAIN_HQ' as const, regionId: null },
-      { username: 'region_east', fullName: 'Col. Sarah Mitchell', email: 'east@flyos.mil', role: 'REGIONAL_HQ' as const, regionId: 'east-region' },
-      { username: 'region_west', fullName: 'Maj. David Chen', email: 'west@flyos.mil', role: 'REGIONAL_HQ' as const, regionId: 'west-region' }
+    // Create users with proper emails
+    const usersData = [
+      { username: 'main_admin', fullName: 'Main Administrator', email: 'main@flyos.mil', role: 'MAIN_HQ' as any, regionId: null },
+      { username: 'region_east', fullName: 'Col. Sarah Mitchell', email: 'east@flyos.mil', role: 'REGIONAL_HQ' as any, regionId: 'east-region' },
+      { username: 'region_west', fullName: 'Maj. David Chen', email: 'west@flyos.mil', role: 'REGIONAL_HQ' as any, regionId: 'west-region' },
+      { username: 'operator1', fullName: 'Lt. Michael Rodriguez', email: 'operator1@flyos.mil', role: 'OPERATOR' as any, regionId: 'east-region' },
+      { username: 'operator2', fullName: 'Lt. Jessica Kim', email: 'operator2@flyos.mil', role: 'OPERATOR' as any, regionId: 'east-region' }
     ];
 
-    for (const userData of users) {
-      const user = await prisma.user.create({
-        data: { ...userData, status: 'ACTIVE' }
+    for (const userData of usersData) {
+      const user = await prisma.user.upsert({
+        where: { email: userData.email },
+        update: { ...userData, status: 'ACTIVE' as any },
+        create: { ...userData, status: 'ACTIVE' as any }
       });
       await syncUserToSupabase(user);
     }
 
-    // Create initial drones
-    const drones = [
-      { id: 'drone-001', model: 'FlyOS_MQ5' as const, status: 'ACTIVE' as const, regionId: 'east-region', operatorId: null },
-      { id: 'drone-002', model: 'FlyOS_MQ7' as const, status: 'STANDBY' as const, regionId: 'west-region', operatorId: null }
+    // Create initial drones with proper models
+    const dronesData = [
+      { id: 'drone-001', model: 'FlyOS_MQ5' as any, status: 'ACTIVE' as any, regionId: 'east-region', operatorId: null },
+      { id: 'drone-002', model: 'FlyOS_MQ7' as any, status: 'STANDBY' as any, regionId: 'west-region', operatorId: null },
+      { id: 'drone-003', model: 'FlyOS_MQ9' as any, status: 'MAINTENANCE' as any, regionId: 'south-region', operatorId: null }
     ];
 
-    for (const droneData of drones) {
-      const drone = await prisma.drone.create({ data: droneData });
+    for (const droneData of dronesData) {
+      const drone = await prisma.drone.upsert({
+        where: { id: droneData.id },
+        update: droneData,
+        create: droneData
+      });
       await syncDroneToSupabase(drone);
     }
 
     const created = {
-      regions: regions.length,
-      users: users.length,
-      drones: drones.length,
+      regions: regionsData.length,
+      users: usersData.length,
+      drones: dronesData.length,
       assignments: 0
     };
 
