@@ -11,7 +11,13 @@
     "migrate:deploy": "prisma migrate deploy",
     "generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "init-db": "ts-node src/scripts/initDatabase.ts",
+    "repair-sync": "ts-node src/scripts/initDatabase.ts --repair-only",
+    "sync-users": "ts-node -e \"import('./src/services/supabaseSync').then(m => m.syncExistingUsersToSupabase())\"",
+    "list-users": "ts-node src/scripts/listUsers.ts",
+    "diagnose-supabase": "ts-node src/scripts/supabaseDiagnostic.ts",
+    "fix-supabase": "ts-node src/scripts/supabaseDiagnostic.ts --fix"
   },
   "dependencies": {
     "@prisma/client": "^5.7.0",

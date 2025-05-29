@@ -1,16 +1,20 @@
-// services/user-management-service/src/scripts/initDatabase.ts
+// services/user-management-service/src/scripts/initDatabase.ts - COMPLETE FIXED VERSION
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
-import { createSupabaseUser } from '../services/supabaseSync';
+import { 
+  createSupabaseUser, 
+  repairUserSync, 
+  syncExistingUsersToSupabase 
+} from '../services/supabaseSync';
 
 /**
- * Initialize database with seed data
+ * Enhanced database initialization with sync repair
  */
 export const initDatabase = async () => {
   try {
     logger.info('🚀 Initializing database...');
 
-    // Create initial regions
+    // STEP 1: Create regions first
     const regions = [
       {
         id: 'east-region',
@@ -63,7 +67,11 @@ export const initDatabase = async () => {
       logger.info(`✅ Region created/updated: ${region.name}`);
     }
 
-    // Create initial users (if not exist)
+    // STEP 2: Repair existing user sync first
+    logger.info('🔧 Repairing user synchronization...');
+    await repairUserSync();
+
+    // STEP 3: Create users with enhanced error handling
     const users = [
       {
         username: 'main_admin',
@@ -112,49 +120,99 @@ export const initDatabase = async () => {
       }
     ];
 
-    logger.info('Creating users...');
+    logger.info('Processing users...');
     for (const userData of users) {
-      // Check if user already exists
-      const existingUser = await prisma.user.findUnique({
-        where: { username: userData.username }
-      });
-
-      if (existingUser) {
-        logger.info(`⏭️  User already exists: ${userData.username}`);
-        continue;
-      }
-
       try {
-        // Create Supabase user
-        const supabaseUser = await createSupabaseUser({
-          email: userData.email,
-          password: userData.password,
-          username: userData.username,
-          role: userData.role,
-          regionId: userData.regionId || undefined,
-          fullName: userData.fullName
-        });
-
-        // Create local user
-        await prisma.user.create({
-          data: {
-            username: userData.username,
-            fullName: userData.fullName,
-            email: userData.email,
-            role: userData.role,
-            regionId: userData.regionId,
-            status: userData.status,
-            supabaseUserId: supabaseUser.id
+        // Check if user already exists locally
+        const existingLocalUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { username: userData.username },
+              { email: userData.email }
+            ]
           }
         });
 
-        logger.info(`✅ User created: ${userData.username}`);
+        if (existingLocalUser) {
+          logger.info(`⏭️  Local user already exists: ${userData.username}`);
+          
+          // If user exists locally but has no Supabase ID, try to create/link
+          if (!existingLocalUser.supabaseUserId) {
+            logger.info(`🔗 Attempting to link user to Supabase: ${userData.username}`);
+            
+            try {
+              const supabaseUser = await createSupabaseUser({
+                email: userData.email,
+                password: userData.password,
+                username: userData.username,
+                role: userData.role,
+                regionId: userData.regionId || undefined,
+                fullName: userData.fullName
+              });
+
+              // Update local user with Supabase ID
+              await prisma.user.update({
+                where: { id: existingLocalUser.id },
+                data: { supabaseUserId: supabaseUser.id }
+              });
+
+              logger.info(`✅ Linked existing user to Supabase: ${userData.username} -> ${supabaseUser.id}`);
+
+            } catch (linkError: any) {
+              logger.warn(`⚠️  Failed to link ${userData.username} to Supabase: ${linkError.message}`);
+            }
+          }
+          
+          continue;
+        }
+
+        // Create new user (both local and Supabase)
+        logger.info(`➕ Creating new user: ${userData.username}`);
+        
+        try {
+          // Create in Supabase first
+          const supabaseUser = await createSupabaseUser({
+            email: userData.email,
+            password: userData.password,
+            username: userData.username,
+            role: userData.role,
+            regionId: userData.regionId || undefined,
+            fullName: userData.fullName
+          });
+
+          // Create in local database
+          await prisma.user.create({
+            data: {
+              username: userData.username,
+              fullName: userData.fullName,
+              email: userData.email,
+              role: userData.role,
+              regionId: userData.regionId,
+              status: userData.status,
+              supabaseUserId: supabaseUser.id
+            }
+          });
+
+          logger.info(`✅ User created successfully: ${userData.username} (${supabaseUser.id})`);
+
+        } catch (createError: any) {
+          logger.error(`❌ Failed to create user ${userData.username}: ${createError.message}`);
+          
+          // If Supabase creation failed but error suggests user exists, try to recover
+          if (createError.message.includes('already exists') || createError.message.includes('already been registered')) {
+            logger.info(`🔄 User might exist in Supabase, attempting recovery for: ${userData.username}`);
+            
+            // Try to run repair sync again to catch this user
+            await repairUserSync();
+          }
+        }
+
       } catch (error: any) {
-        logger.error(`❌ Failed to create user ${userData.username}:`, error.message);
+        logger.error(`💥 Error processing user ${userData.username}:`, error.message);
       }
     }
 
-    // Create initial drones
+    // STEP 4: Create drones
     const drones = [
       {
         id: 'drone-001',
@@ -228,14 +286,24 @@ export const initDatabase = async () => {
       logger.info(`✅ Drone created/updated: ${drone.id}`);
     }
 
+    // STEP 5: Final sync check
+    logger.info('🔄 Running final sync verification...');
+    await syncExistingUsersToSupabase();
+
     logger.info('✅ Database initialization completed successfully!');
 
-    // Print summary
+    // Print comprehensive summary
     const stats = await getDatabaseStats();
-    logger.info('📊 Database Summary:');
-    logger.info(`   Regions: ${stats.regions}`);
-    logger.info(`   Users: ${stats.users}`);
-    logger.info(`   Drones: ${stats.drones}`);
+    logger.info('📊 Final Database Summary:');
+    logger.info(`   🌍 Regions: ${stats.regions}`);
+    logger.info(`   👥 Local Users: ${stats.users}`);
+    logger.info(`   🔗 Synced Users: ${stats.syncedUsers}`);
+    logger.info(`   ⚠️  Unsynced Users: ${stats.unsyncedUsers}`);
+    logger.info(`   🚁 Drones: ${stats.drones}`);
+
+    if (stats.unsyncedUsers > 0) {
+      logger.warn('⚠️  Some users are not synced with Supabase. You may need to run sync repair manually.');
+    }
 
   } catch (error) {
     logger.error('❌ Database initialization failed:', error);
@@ -244,7 +312,7 @@ export const initDatabase = async () => {
 };
 
 /**
- * Get database statistics
+ * Get comprehensive database statistics
  */
 const getDatabaseStats = async () => {
   const [regions, users, drones] = await Promise.all([
@@ -253,18 +321,64 @@ const getDatabaseStats = async () => {
     prisma.drone.count()
   ]);
 
-  return { regions, users, drones };
+  const syncedUsers = await prisma.user.count({
+    where: {
+      supabaseUserId: {
+        not: null
+      }
+    }
+  });
+
+  const unsyncedUsers = users - syncedUsers;
+
+  return { regions, users, drones, syncedUsers, unsyncedUsers };
+};
+
+/**
+ * Standalone repair script
+ */
+export const repairSync = async () => {
+  try {
+    logger.info('🔧 Starting standalone sync repair...');
+    await repairUserSync();
+    await syncExistingUsersToSupabase();
+    
+    const stats = await getDatabaseStats();
+    logger.info('📊 Repair Results:');
+    logger.info(`   👥 Total Users: ${stats.users}`);
+    logger.info(`   🔗 Synced Users: ${stats.syncedUsers}`);
+    logger.info(`   ⚠️  Unsynced Users: ${stats.unsyncedUsers}`);
+    
+    logger.info('🎉 Sync repair completed!');
+  } catch (error) {
+    logger.error('❌ Sync repair failed:', error);
+    throw error;
+  }
 };
 
 // Run initialization if called directly
 if (require.main === module) {
-  initDatabase()
-    .then(() => {
-      logger.info('🎉 Database initialization script completed');
-      process.exit(0);
-    })
-    .catch((error) => {
-      logger.error('💥 Database initialization script failed:', error);
-      process.exit(1);
-    });
+  const args = process.argv.slice(2);
+  
+  if (args.includes('--repair-only')) {
+    repairSync()
+      .then(() => {
+        logger.info('🎉 Sync repair completed successfully');
+        process.exit(0);
+      })
+      .catch((error) => {
+        logger.error('💥 Sync repair failed:', error);
+        process.exit(1);
+      });
+  } else {
+    initDatabase()
+      .then(() => {
+        logger.info('🎉 Database initialization completed successfully');
+        process.exit(0);
+      })
+      .catch((error) => {
+        logger.error('💥 Database initialization failed:', error);
+        process.exit(1);
+      });
+  }
 }

@@ -1,4 +1,4 @@
-// services/user-management-service/src/services/userService.ts
+// services/user-management-service/src/services/userService.ts - COMPLETE FIXED VERSION
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import {
