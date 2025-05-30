@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Frontend (your existing Next.js app)
+  # Frontend (your Next.js app) - FIXED
   frontend:
     build:
       context: .
@@ -16,8 +16,8 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
       # App Configuration
       - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_WS_URL=ws://3.111.215.70:4002
-      - NEXT_PUBLIC_DOMAIN=http://3.111.215.70:3001
+      - NEXT_PUBLIC_WS_URL=ws://localhost:4002
+      - NEXT_PUBLIC_DOMAIN=http://localhost:3001
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - USER_MANAGEMENT_SERVICE_URL=http://user-management-service:4003
     depends_on:
@@ -27,6 +27,11 @@ services:
     networks:
       - flyos-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # TimescaleDB database
   timescaledb:
@@ -92,8 +97,10 @@ services:
       context: ./services/drone-db-service
       dockerfile: Dockerfile
     depends_on:
-      - timescaledb
-      - redis
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
       - PORT=4001
@@ -102,21 +109,27 @@ services:
       # SUPABASE ONLY - No JWT secrets needed
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000,http://3.111.215.70:3001
-      - LOG_LEVEL=debug
+      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+      - LOG_LEVEL=info
     ports:
       - "4001:4001"
     networks:
       - flyos-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # User Management Service (NEW!)
+  # User Management Service
   user-management-service:
     build:
       context: ./services/user-management-service
       dockerfile: Dockerfile
     depends_on:
-      - postgres-users
+      postgres-users:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
       - PORT=4003
@@ -125,13 +138,18 @@ services:
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
       - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
-      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000,http://3.111.215.70:3001
-      - LOG_LEVEL=debug
+      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+      - LOG_LEVEL=info
     ports:
       - "4003:4003"
     networks:
       - flyos-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Real-time Service (PURE SUPABASE AUTH)
   realtime-service:
@@ -139,21 +157,27 @@ services:
       context: ./services/realtime-service
       dockerfile: Dockerfile
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
       - PORT=4002
       - REDIS_URL=redis://redis:6379
       # SUPABASE ONLY - No JWT secrets needed
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000,http://3.111.215.70:3001
-      - LOG_LEVEL=debug
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjO3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
+      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+      - LOG_LEVEL=info
     ports:
       - "4002:4002"
     networks:
       - flyos-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   flyos-network:
@@ -162,4 +186,4 @@ networks:
 volumes:
   timescaledb_data:
   redis_data:
-  user_management_data:  # New volume for user management database
+  user_management_data:

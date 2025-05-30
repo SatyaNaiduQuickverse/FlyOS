@@ -1,17 +1,25 @@
-# Dockerfile for frontend
+# Dockerfile for frontend - FIXED VERSION
 FROM node:18-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Clean npm cache and install dependencies with force resolution
+RUN npm cache clean --force
+RUN rm -rf node_modules package-lock.json
+RUN npm install --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+# Build the application
 RUN npm run build
 
 # Production image, copy all the files and run next
