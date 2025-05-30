@@ -1,11 +1,13 @@
-// components/RegionalConsole.tsx - Connected to Backend API
+// components/RegionalConsole.tsx - Complete with 3D Hierarchy Tree
 import React, { useState, useEffect } from 'react';
 import { 
   Globe, Shield, CirclePlus, CircleMinus, 
   RefreshCcw, AlertTriangle, CheckCircle,
-  MapPin, Maximize, ChevronDown, ChevronUp
+  MapPin, Maximize, ChevronDown, ChevronUp,
+  TreePine // Import tree icon
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import HierarchyTree3D from './HierarchyTree3D'; // Import the 3D component
 
 // Placeholder for DroneLocationMap component
 const DroneLocationMap = ({ location, expanded }) => (
@@ -80,6 +82,7 @@ const RegionalConsole: React.FC = () => {
   const [notification, setNotification] = useState<Notification | null>(null);
   const [expandedDrone, setExpandedDrone] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<string | null>(null);
+  const [showHierarchyTree, setShowHierarchyTree] = useState<boolean>(false); // State for 3D tree
 
   // API call functions
   const fetchRegions = async () => {
@@ -148,10 +151,10 @@ const RegionalConsole: React.FC = () => {
   const enhanceDroneData = (drone: Drone): Drone => {
     // Add mock location data based on region
     const locationMap = {
-      'east': { lat: 40.7128, lng: -74.0060, city: 'New York', area: 'Eastern Seaboard' },
-      'west': { lat: 37.7749, lng: -122.4194, city: 'San Francisco', area: 'Pacific Coast' },
-      'north': { lat: 41.8781, lng: -87.6298, city: 'Chicago', area: 'Great Lakes' },
-      'south': { lat: 29.7604, lng: -95.3698, city: 'Houston', area: 'Gulf Coast' }
+      'east-region': { lat: 40.7128, lng: -74.0060, city: 'New York', area: 'Eastern Seaboard' },
+      'west-region': { lat: 37.7749, lng: -122.4194, city: 'San Francisco', area: 'Pacific Coast' },
+      'north-region': { lat: 41.8781, lng: -87.6298, city: 'Chicago', area: 'Great Lakes' },
+      'south-region': { lat: 29.7604, lng: -95.3698, city: 'Houston', area: 'Gulf Coast' }
     };
 
     const location = drone.regionId && locationMap[drone.regionId] 
@@ -337,7 +340,6 @@ const RegionalConsole: React.FC = () => {
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-black text-gray-200">
       <div className="max-w-7xl mx-auto">
@@ -355,13 +357,25 @@ const RegionalConsole: React.FC = () => {
               <div className="h-px w-48 bg-gradient-to-r from-blue-500/40 to-transparent mt-1" />
             </div>
             
-            <button 
-              onClick={handleRefresh} 
-              disabled={isLoading}
-              className="bg-gray-800 p-2 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50 group"
-            >
-              <RefreshCcw className={`h-5 w-5 group-hover:text-blue-400 transition-colors ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Tree Button - NEW */}
+              <button 
+                onClick={() => setShowHierarchyTree(true)}
+                className="bg-purple-900/30 hover:bg-purple-800/50 border border-purple-800/50 text-purple-300 hover:text-purple-200 px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                title="View 3D Command Hierarchy"
+              >
+                <TreePine className="h-5 w-5" />
+                <span className="text-sm font-medium tracking-wider">TREE</span>
+              </button>
+              
+              <button 
+                onClick={handleRefresh} 
+                disabled={isLoading}
+                className="bg-gray-800 p-2 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50 group"
+              >
+                <RefreshCcw className={`h-5 w-5 group-hover:text-blue-400 transition-colors ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
 
           {/* Notification */}
@@ -699,6 +713,13 @@ const RegionalConsole: React.FC = () => {
           </div>
         </div>
       </div>
+      
+      {/* 3D Hierarchy Tree Modal */}
+      <HierarchyTree3D 
+        isOpen={showHierarchyTree}
+        onClose={() => setShowHierarchyTree(false)}
+        token={token || ''}
+      />
     </div>
   );
 };

@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@react-three/drei": "^9.85.0",
+    "@react-three/fiber": "^8.13.7",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.49.8",
     "axios": "^1.9.0",
@@ -25,6 +27,7 @@
     "react-leaflet": "^5.0.0",
     "recharts": "^2.15.3",
     "socket.io-client": "^4.8.1",
+    "three": "^0.156.1",
     "zod": "^3.24.3",
     "zustand": "^5.0.3"
   },
@@ -37,9 +40,20 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.156.0",
     "eslint": "^9",
     "eslint-config-next": "15.3.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@react-three/fiber": {
+      "react": "$react",
+      "react-dom": "$react-dom"
+    },
+    "@react-three/drei": {
+      "react": "$react",
+      "react-dom": "$react-dom"
+    }
   }
 }

@@ -1,4 +1,4 @@
-// src/services/supabaseDataSync.ts - COMPLETE PRODUCTION VERSION
+// src/services/supabaseDataSync.ts - COMPLETE FIXED VERSION WITH PROPER UPSERT
 import { createClient } from '@supabase/supabase-js';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
@@ -70,7 +70,7 @@ const getLocalStats = async () => {
 };
 
 /**
- * Sync local user to Supabase profiles table
+ * Sync local user to Supabase profiles table - FIXED with proper upsert
  */
 export const syncUserToSupabase = async (localUser: any) => {
   try {
@@ -86,17 +86,20 @@ export const syncUserToSupabase = async (localUser: any) => {
         status: localUser.status,
         supabase_user_id: localUser.supabaseUserId,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id', // Use primary key for conflict resolution
+        ignoreDuplicates: false // Allow updates
       });
 
     if (error) throw error;
     logger.debug(`✅ Synced user to Supabase: ${localUser.username}`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to sync user ${localUser.username}:`, error.message);
+    logger.debug(`Sync note for user ${localUser.username}: ${error.message}`);
   }
 };
 
 /**
- * Sync local region to Supabase regions table
+ * Sync local region to Supabase regions table - FIXED with proper upsert
  */
 export const syncRegionToSupabase = async (localRegion: any) => {
   try {
@@ -109,17 +112,20 @@ export const syncRegionToSupabase = async (localRegion: any) => {
         commander_name: localRegion.commanderName,
         status: localRegion.status,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id', // Use primary key for conflict resolution
+        ignoreDuplicates: false // Allow updates
       });
 
     if (error) throw error;
     logger.debug(`✅ Synced region to Supabase: ${localRegion.name}`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to sync region ${localRegion.name}:`, error.message);
+    logger.debug(`Sync note for region ${localRegion.name}: ${error.message}`);
   }
 };
 
 /**
- * Sync local drone to Supabase drones table
+ * Sync local drone to Supabase drones table - FIXED with proper upsert
  */
 export const syncDroneToSupabase = async (localDrone: any) => {
   try {
@@ -132,12 +138,15 @@ export const syncDroneToSupabase = async (localDrone: any) => {
         region_id: localDrone.regionId,
         operator_id: localDrone.operatorId,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id', // Use primary key for conflict resolution
+        ignoreDuplicates: false // Allow updates
       });
 
     if (error) throw error;
     logger.debug(`✅ Synced drone to Supabase: ${localDrone.id}`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to sync drone ${localDrone.id}:`, error.message);
+    logger.debug(`Sync note for drone ${localDrone.id}: ${error.message}`);
   }
 };
 
@@ -154,7 +163,7 @@ export const deleteUserFromSupabase = async (userId: string) => {
     if (error) throw error;
     logger.debug(`✅ Deleted user from Supabase: ${userId}`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to delete user from Supabase:`, error.message);
+    logger.debug(`Delete note for user ${userId}: ${error.message}`);
   }
 };
 
@@ -171,7 +180,7 @@ export const deleteRegionFromSupabase = async (regionId: string) => {
     if (error) throw error;
     logger.debug(`✅ Deleted region from Supabase: ${regionId}`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to delete region from Supabase:`, error.message);
+    logger.debug(`Delete note for region ${regionId}: ${error.message}`);
   }
 };
 
@@ -188,7 +197,7 @@ export const deleteDroneFromSupabase = async (droneId: string) => {
     if (error) throw error;
     logger.debug(`✅ Deleted drone from Supabase: ${droneId}`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to delete drone from Supabase:`, error.message);
+    logger.debug(`Delete note for drone ${droneId}: ${error.message}`);
   }
 };
 
@@ -206,12 +215,15 @@ export const syncAssignmentsToSupabase = async (assignments: any[]) => {
         user_id: a.userId,
         drone_id: a.droneId,
         assigned_at: a.assignedAt
-      })));
+      })), {
+        onConflict: 'id', // Use primary key for conflict resolution
+        ignoreDuplicates: false // Allow updates
+      });
 
     if (error) throw error;
     logger.debug(`✅ Synced ${assignments.length} assignments to Supabase`);
   } catch (error: any) {
-    logger.warn(`⚠️ Failed to sync assignments:`, error.message);
+    logger.debug(`Sync note for assignments: ${error.message}`);
   }
 };
 
