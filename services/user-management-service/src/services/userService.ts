@@ -1,4 +1,4 @@
-// src/services/userService.ts - Complete with auto-sync
+// src/services/userService.ts - FIXED WITH AUTO-SYNC
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import {
@@ -446,11 +446,4 @@ export const getUserById = async (userId: string) => {
       area: user.region.area
     } : null
   };
-};
-export const userService = {
-  createUser,
-  updateUser,
-  deleteUser,
-  getAllUsers: getUsers,
-  getUserById
 };

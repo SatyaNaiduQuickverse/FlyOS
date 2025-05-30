@@ -1,9 +1,8 @@
-// src/services/droneService.ts - Enhanced with auto-sync
+// src/services/droneService.ts - FIXED WITH AUTO-SYNC
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import { syncDroneToSupabase, deleteDroneFromSupabase, syncAssignmentsToSupabase } from './supabaseDataSync';
 
-// Keep existing interfaces...
 export interface CreateDroneInput {
   id: string;
   model: 'FlyOS_MQ5' | 'FlyOS_MQ7' | 'FlyOS_MQ9';
@@ -286,7 +285,7 @@ export const assignDroneToUser = async (droneId: string, userId: string) => {
       }
     });
 
-    // Sync assignment to Supabase - FIXED: Pass array parameter
+    // Sync assignment to Supabase
     await syncAssignmentsToSupabase([assignment]);
 
     logger.info(`✅ Drone ${droneId} assigned to user ${userId} and synced`);
