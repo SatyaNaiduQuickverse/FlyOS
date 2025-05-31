@@ -1,9 +1,10 @@
-// components/UserManagement/index.tsx - Updated with Region Management
+// components/UserManagement/index.tsx - UPDATED TO USE FRONTEND API ROUTES
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Users, Clock, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { UserRole } from '../../types/auth';
+import { useAuth } from '../../lib/auth';
 import UserManagementTabs from './UserManagementTabs';
 import RegionalCommandersList from './RegionalCommandersList';
 import OperatorsList from './OperatorsList';
@@ -13,13 +14,13 @@ import CreateDroneForm from './CreateDroneForm';
 import RegionManagement from './RegionManagement';
 import CreateRegionForm from './CreateRegionForm';
 import { User, Region, Drone, UserManagementTab, Notification } from './types';
-import { MOCK_USERS, MOCK_REGIONS, MOCK_DRONES } from './mockData';
 
 const UserManagement: React.FC = () => {
+  const { token } = useAuth();
   const [activeTab, setActiveTab] = useState<UserManagementTab>(UserManagementTab.MANAGE_REGIONS);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [regions, setRegions] = useState<Region[]>(MOCK_REGIONS);
-  const [drones, setDrones] = useState<Drone[]>(MOCK_DRONES);
+  const [users, setUsers] = useState<User[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [drones, setDrones] = useState<Drone[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [notification, setNotification] = useState<Notification | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -28,22 +29,41 @@ const UserManagement: React.FC = () => {
   const [editingRegion, setEditingRegion] = useState<Region | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  // Load initial data
+  // Load data from API routes (not direct backend)
   useEffect(() => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setUsers(MOCK_USERS);
-      setRegions(MOCK_REGIONS);
-      setDrones(MOCK_DRONES);
-      setLastUpdated(new Date());
-      setIsLoading(false);
-    }, 800);
-  }, []);
+    loadData();
+  }, [token]);
 
-  // Utility functions
-  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
+  const loadData = async () => {
+    if (!token) return;
+    
+    setIsLoading(true);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      const [usersRes, regionsRes, dronesRes] = await Promise.all([
+        fetch('/api/users', { headers }),
+        fetch('/api/regions', { headers }),
+        fetch('/api/drones', { headers })
+      ]);
+
+      const [usersData, regionsData, dronesData] = await Promise.all([
+        usersRes.json(),
+        regionsRes.json(), 
+        dronesRes.json()
+      ]);
+
+      if (usersData.success !== false) setUsers(usersData.users || []);
+      if (regionsData.success !== false) setRegions(regionsData.regions || []);
+      if (dronesData.success !== false) setDrones(dronesData.drones || []);
+      
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      showNotification('Failed to load data', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const formatDate = (dateString: string): string => {
@@ -58,151 +78,97 @@ const UserManagement: React.FC = () => {
     return new Date(dateString).toLocaleDateString(undefined, options);
   };
 
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
   const refreshData = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setLastUpdated(new Date());
-      setIsLoading(false);
-      showNotification('Data refreshed successfully');
-    }, 1000);
-  };
-
-  // Region management functions
-  const handleCreateRegion = (regionData: any) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      const newRegion: Region = {
-        ...regionData,
-        id: `region-${String(Math.floor(Math.random() * 900) + 100)}`,
-      };
-
-      setRegions(prev => [...prev, newRegion]);
-      setActiveTab(UserManagementTab.MANAGE_REGIONS);
-      showNotification('Successfully created new region');
-      setLastUpdated(new Date());
-      setIsLoading(false);
-    }, 800);
-  };
-
-  const handleUpdateRegion = (regionData: any) => {
-    if (!editingRegion) return;
-    
-    setIsLoading(true);
-    setTimeout(() => {
-      const updatedRegion: Region = {
-        ...editingRegion,
-        ...regionData,
-      };
-
-      setRegions(prev => prev.map(region => region.id === updatedRegion.id ? updatedRegion : region));
-      setActiveTab(UserManagementTab.MANAGE_REGIONS);
-      showNotification('Successfully updated region');
-      setEditingRegion(null);
-      setLastUpdated(new Date());
-      setIsLoading(false);
-    }, 800);
-  };
-
-  const handleDeleteRegion = (regionId: string) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      const regionToDelete = regions.find(r => r.id === regionId);
-      
-      if (regionToDelete) {
-        // Delete users in this region
-        const usersToDelete = users.filter(u => u.regionId === regionId);
-        setUsers(prev => prev.filter(user => user.regionId !== regionId));
-        
-        // Unassign drones from this region (but keep the drones)
-        setDrones(prev => prev.map(drone => 
-          drone.regionId === regionId 
-            ? { ...drone, regionId: null, operatorId: null }
-            : drone
-        ));
-        
-        // Delete the region
-        setRegions(prev => prev.filter(region => region.id !== regionId));
-        
-        showNotification(
-          `Successfully deleted region "${regionToDelete.name}" and ${usersToDelete.length} associated user(s)`
-        );
-      }
-      
-      setLastUpdated(new Date());
-      setIsLoading(false);
-    }, 800);
-  };
-
-  const handleEditRegion = (region: Region) => {
-    setEditingRegion(region);
-    setActiveTab(UserManagementTab.CREATE_REGION);
+    loadData();
+    showNotification('Data refreshed successfully');
   };
 
   // User management functions
-  const handleCreateUser = (userData: any) => {
+  const handleCreateUser = async (userData: any) => {
     setIsLoading(true);
-    setTimeout(() => {
-      const newUser: User = {
-        ...userData,
-        id: `user-${String(Math.floor(Math.random() * 900) + 100)}`,
-        assignedDrones: [],
-        assignedOperators: userData.role === UserRole.REGIONAL_HQ ? [] : undefined,
-        createdAt: new Date().toISOString(),
-      };
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(userData)
+      });
 
-      setUsers(prev => [...prev, newUser]);
-      setActiveTab(
-        newUser.role === UserRole.REGIONAL_HQ 
-          ? UserManagementTab.REGIONAL_COMMANDERS 
-          : UserManagementTab.OPERATORS
-      );
-      showNotification(`Successfully created ${newUser.role === UserRole.REGIONAL_HQ ? 'Regional Commander' : 'Field Operator'}`);
-      setLastUpdated(new Date());
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        setActiveTab(userData.role === UserRole.REGIONAL_HQ ? UserManagementTab.REGIONAL_COMMANDERS : UserManagementTab.OPERATORS);
+        showNotification(`Successfully created ${userData.role === UserRole.REGIONAL_HQ ? 'Regional Commander' : 'Field Operator'}`);
+      } else {
+        throw new Error(result.message || 'Failed to create user');
+      }
+    } catch (error: any) {
+      showNotification(`Failed to create user: ${error.message}`, 'error');
+    } finally {
       setIsLoading(false);
-    }, 800);
+    }
   };
 
-  const handleUpdateUser = (userData: any) => {
+  const handleUpdateUser = async (userData: any) => {
     if (!editingUser) return;
     
     setIsLoading(true);
-    setTimeout(() => {
-      const updatedUser: User = {
-        ...editingUser,
-        ...userData,
-      };
+    try {
+      const response = await fetch(`/api/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(userData)
+      });
 
-      setUsers(prev => prev.map(user => user.id === updatedUser.id ? updatedUser : user));
-      setActiveTab(
-        updatedUser.role === UserRole.REGIONAL_HQ 
-          ? UserManagementTab.REGIONAL_COMMANDERS 
-          : UserManagementTab.OPERATORS
-      );
-      showNotification(`Successfully updated ${updatedUser.role === UserRole.REGIONAL_HQ ? 'Regional Commander' : 'Field Operator'}`);
-      setEditingUser(null);
-      setLastUpdated(new Date());
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        setActiveTab(userData.role === UserRole.REGIONAL_HQ ? UserManagementTab.REGIONAL_COMMANDERS : UserManagementTab.OPERATORS);
+        showNotification(`Successfully updated ${userData.role === UserRole.REGIONAL_HQ ? 'Regional Commander' : 'Field Operator'}`);
+        setEditingUser(null);
+      } else {
+        throw new Error(result.message || 'Failed to update user');
+      }
+    } catch (error: any) {
+      showNotification(`Failed to update user: ${error.message}`, 'error');
+    } finally {
       setIsLoading(false);
-    }, 800);
+    }
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     setIsLoading(true);
-    setTimeout(() => {
-      const userToDelete = users.find(u => u.id === userId);
-      if (userToDelete) {
-        // Unassign drones from this user
-        setDrones(prev => prev.map(drone => 
-          drone.operatorId === userId 
-            ? { ...drone, operatorId: null }
-            : drone
-        ));
-        
-        setUsers(prev => prev.filter(user => user.id !== userId));
-        showNotification(`Successfully deleted ${userToDelete.role === UserRole.REGIONAL_HQ ? 'Regional Commander' : 'Field Operator'}`);
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        showNotification('User deleted successfully');
+      } else {
+        throw new Error(result.message || 'Failed to delete user');
       }
-      setLastUpdated(new Date());
+    } catch (error: any) {
+      showNotification(`Failed to delete user: ${error.message}`, 'error');
+    } finally {
       setIsLoading(false);
-    }, 800);
+    }
   };
 
   const handleEditUser = (user: User) => {
@@ -210,20 +176,121 @@ const UserManagement: React.FC = () => {
     setActiveTab(UserManagementTab.CREATE_USER);
   };
 
-  const handleCreateDrone = (droneData: any) => {
+  // Region management functions
+  const handleCreateRegion = async (regionData: any) => {
     setIsLoading(true);
-    setTimeout(() => {
-      const newDrone: Drone = {
-        ...droneData,
-        id: `drone-${String(Math.floor(Math.random() * 900) + 100)}`,
-      };
+    try {
+      const response = await fetch('/api/regions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(regionData)
+      });
 
-      setDrones(prev => [...prev, newDrone]);
-      setActiveTab(UserManagementTab.MANAGE_DRONES);
-      showNotification('Successfully created new drone');
-      setLastUpdated(new Date());
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        setActiveTab(UserManagementTab.MANAGE_REGIONS);
+        showNotification('Successfully created new region');
+      } else {
+        throw new Error(result.message || 'Failed to create region');
+      }
+    } catch (error: any) {
+      showNotification(`Failed to create region: ${error.message}`, 'error');
+    } finally {
       setIsLoading(false);
-    }, 800);
+    }
+  };
+
+  const handleUpdateRegion = async (regionData: any) => {
+    if (!editingRegion) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/regions/${editingRegion.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(regionData)
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        setActiveTab(UserManagementTab.MANAGE_REGIONS);
+        showNotification('Successfully updated region');
+        setEditingRegion(null);
+      } else {
+        throw new Error(result.message || 'Failed to update region');
+      }
+    } catch (error: any) {
+      showNotification(`Failed to update region: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteRegion = async (regionId: string) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/regions/${regionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        showNotification('Region deleted successfully');
+      } else {
+        throw new Error(result.message || 'Failed to delete region');
+      }
+    } catch (error: any) {
+      showNotification(`Failed to delete region: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEditRegion = (region: Region) => {
+    setEditingRegion(region);
+    setActiveTab(UserManagementTab.CREATE_REGION);
+  };
+
+  // Drone management functions
+  const handleCreateDrone = async (droneData: any) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/drones', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(droneData)
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        await loadData();
+        setActiveTab(UserManagementTab.MANAGE_DRONES);
+        showNotification('Successfully created new drone');
+      } else {
+        throw new Error(result.message || 'Failed to create drone');
+      }
+    } catch (error: any) {
+      showNotification(`Failed to create drone: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

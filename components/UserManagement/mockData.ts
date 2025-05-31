@@ -1,6 +1,5 @@
 // components/UserManagement/mockData.ts - Mock Data for Development
 import { UserRole } from '../../types/auth';
-import { User, Region, Drone } from './types';
 
 export const MOCK_REGIONS: Region[] = [
   { 
