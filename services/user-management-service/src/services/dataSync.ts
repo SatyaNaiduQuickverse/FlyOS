@@ -1,4 +1,4 @@
-
+// services/user-management-service/src/services/dataSync.ts - FIXED VERSION
 import { prisma } from "../database";
 import { createClient } from "@supabase/supabase-js";
 import { logger } from "../utils/logger";
@@ -8,34 +8,83 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// DUAL WRITE: Create in both databases
+// FIXED: Link to existing Supabase Auth users instead of creating new ones
 export const createUserDual = async (userData: any) => {
-  const localUser = await prisma.user.create({
-    data: {
-      username: userData.username,
-      fullName: userData.fullName,
-      email: userData.email,
-      role: userData.role,
-      regionId: userData.regionId || null,
-      status: userData.status || "ACTIVE",
-      supabaseUserId: null
+  try {
+    logger.info(`Creating user: ${userData.username}`);
+
+    // Step 1: Find existing Supabase Auth user by email
+    const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers();
+    
+    if (listError) {
+      throw new Error(`Failed to check existing users: ${listError.message}`);
     }
-  });
 
-  // Immediate Supabase sync
-  await supabase.from("profiles").insert({
-    id: localUser.id,
-    username: localUser.username,
-    full_name: localUser.fullName,
-    email: localUser.email,
-    role: localUser.role,
-    region_id: localUser.regionId,
-    status: localUser.status
-  });
+    const existingAuthUser = existingUsers.users.find(u => u.email === userData.email);
+    
+    if (!existingAuthUser) {
+      throw new Error(`Auth user ${userData.email} must be created in Supabase dashboard first`);
+    }
 
-  return localUser;
+    logger.info(`Found existing auth user: ${existingAuthUser.id}`);
+
+    // Step 2: Update auth user metadata
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      existingAuthUser.id,
+      {
+        user_metadata: {
+          username: userData.username,
+          role: userData.role,
+          region_id: userData.regionId,
+          full_name: userData.fullName
+        }
+      }
+    );
+
+    if (updateError) {
+      logger.warn('Failed to update auth user metadata:', updateError);
+    }
+
+    // Step 3: Create in local PostgreSQL
+    const localUser = await prisma.user.create({
+      data: {
+        username: userData.username,
+        fullName: userData.fullName,
+        email: userData.email,
+        role: userData.role,
+        regionId: userData.regionId || null,
+        status: userData.status || "ACTIVE",
+        supabaseUserId: existingAuthUser.id // Link to existing auth user
+      }
+    });
+
+    // Step 4: Create in Supabase profiles table
+    const { error: profileError } = await supabase.from("profiles").insert({
+      id: localUser.id,
+      username: localUser.username,
+      full_name: localUser.fullName,
+      email: localUser.email,
+      role: localUser.role,
+      region_id: localUser.regionId,
+      status: localUser.status,
+      supabase_user_id: existingAuthUser.id
+    });
+
+    if (profileError) {
+      logger.error('Failed to create Supabase profile:', profileError);
+      // Don't fail completely - local user exists
+    }
+
+    logger.info(`✅ User created successfully: ${userData.username} (Auth: ${existingAuthUser.id})`);
+    return localUser;
+
+  } catch (error: any) {
+    logger.error('Failed to create user:', error);
+    throw error;
+  }
 };
 
+// Keep existing functions unchanged
 export const createRegionDual = async (regionData: any) => {
   const localRegion = await prisma.region.create({
     data: {
@@ -79,7 +128,6 @@ export const createDroneDual = async (droneData: any) => {
   return localDrone;
 };
 
-// STARTUP: Load from Supabase if local empty
 export const initializeData = async () => {
   const localCount = await prisma.user.count();
   
@@ -92,7 +140,6 @@ export const initializeData = async () => {
       supabase.from("drones").select("*")
     ]);
 
-    // Restore data
     for (const user of users.data || []) {
       await prisma.user.create({
         data: {
@@ -103,7 +150,7 @@ export const initializeData = async () => {
           role: user.role,
           regionId: user.region_id,
           status: user.status,
-          supabaseUserId: null
+          supabaseUserId: user.supabase_user_id
         }
       });
     }
