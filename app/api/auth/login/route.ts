@@ -1,4 +1,4 @@
-// app/api/auth/login/route.ts - UPDATED TO RECORD REAL LOGIN HISTORY
+// app/api/auth/login/route.ts - FIXED WITH PROFILE VALIDATION FIRST
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -20,7 +20,6 @@ function getClientIP(request: NextRequest): string {
     return realIp;
   }
   
-  // Fallback - this won't be the real IP in production behind a proxy
   return '0.0.0.0';
 }
 
@@ -35,20 +34,17 @@ function parseBrowserInfo(userAgent: string | null) {
     device: 'Desktop'
   };
   
-  // Simple browser detection
   if (userAgent.includes('Chrome')) browserInfo.browser = 'Chrome';
   else if (userAgent.includes('Firefox')) browserInfo.browser = 'Firefox';
   else if (userAgent.includes('Safari')) browserInfo.browser = 'Safari';
   else if (userAgent.includes('Edge')) browserInfo.browser = 'Edge';
   
-  // Simple OS detection
   if (userAgent.includes('Windows')) browserInfo.os = 'Windows';
   else if (userAgent.includes('Mac OS')) browserInfo.os = 'macOS';
   else if (userAgent.includes('Linux')) browserInfo.os = 'Linux';
   else if (userAgent.includes('Android')) browserInfo.os = 'Android';
   else if (userAgent.includes('iOS')) browserInfo.os = 'iOS';
   
-  // Simple device detection
   if (userAgent.includes('Mobile') || userAgent.includes('Android')) {
     browserInfo.device = 'Mobile';
   } else if (userAgent.includes('Tablet') || userAgent.includes('iPad')) {
@@ -72,7 +68,7 @@ async function recordLoginHistory(
     const browserInfo = parseBrowserInfo(userAgent);
     
     const loginHistoryData = {
-      user_id: user?.id || null,
+      user_id: profile?.id || user?.id || null,
       username: profile?.username || user?.email?.split('@')[0] || 'unknown',
       email: user?.email || 'unknown@email.com',
       role: profile?.role || user?.user_metadata?.role || 'OPERATOR',
@@ -98,7 +94,6 @@ async function recordLoginHistory(
     
     if (error) {
       console.error('Failed to record login history:', error);
-      // Don't fail the login if history recording fails
       return null;
     }
     
@@ -146,15 +141,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (!data.user || !data.session) {
-      // Record failed login attempt
-      await recordLoginHistory(
-        { email }, 
-        null, 
-        request, 
-        'FAILED', 
-        'No user or session returned'
-      );
-      
       return NextResponse.json(
         { 
           success: false,
@@ -164,43 +150,87 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user profile
+    // PROFILE VALIDATION FIRST - Before any login history recording
+    console.log('🚨 VALIDATION CHECK STARTING for:', data.user.email);
     let profile = null;
     try {
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single();
+      const serviceUrl = process.env.USER_MANAGEMENT_SERVICE_URL || 'http://user-management-service:4003';
+      console.log('🔍 Attempting to fetch profile from:', serviceUrl);
       
-      if (!profileError) {
-        profile = profileData;
+      const response = await fetch(`${serviceUrl}/api/users`, {
+        headers: {
+          Authorization: `Bearer ${data.session.access_token}`
+        }
+      });
+      
+      console.log('📡 Profile fetch response status:', response.status);
+      
+      if (!response.ok) {
+        console.log('❌ Profile fetch failed with status:', response.status);
+        throw new Error(`Failed to fetch user profile: ${response.status}`);
       }
+      
+      const userData = await response.json();
+      console.log('📊 Fetched users count:', userData.users?.length || 0);
+      profile = userData.users?.find((u: any) => u.email === data.user.email);
+      console.log('🔍 Profile search result for', data.user.email, ':', profile ? 'FOUND' : 'NOT FOUND');
+      
+      if (!profile) {
+        console.log('❌ Profile not found in local database for:', data.user.email);
+        
+        return NextResponse.json(
+          { 
+            success: false,
+            message: 'Account not found. Please contact administrator.' 
+          },
+          { status: 403 }
+        );
+      }
+      
+      if (profile.status !== 'ACTIVE') {
+        console.log('❌ Profile status inactive for:', data.user.email, 'Status:', profile.status);
+        
+        return NextResponse.json(
+          { 
+            success: false,
+            message: 'Account disabled. Please contact administrator.' 
+          },
+          { status: 403 }
+        );
+      }
+
     } catch (profileError) {
-      console.warn('Profile not found, using user metadata');
+      console.error('Profile validation error:', profileError);
+      
+      return NextResponse.json(
+        { 
+          success: false,
+          message: 'Account not found. Please contact administrator.' 
+        },
+        { status: 403 }
+      );
     }
 
-    // Create user object (use profile if available, otherwise metadata)
+    // Profile validation passed - Create user object
     const user = {
-      id: data.user.id,
-      username: profile?.username || data.user.user_metadata?.username || data.user.email?.split('@')[0],
-      role: profile?.role || data.user.user_metadata?.role || 'OPERATOR',
-      regionId: profile?.region_id || data.user.user_metadata?.region_id,
-      fullName: profile?.full_name || data.user.user_metadata?.full_name || 'User',
-      email: data.user.email,
+      id: profile.id,
+      username: profile.username,
+      role: profile.role,
+      regionId: profile.regionId,
+      fullName: profile.fullName,
+      email: profile.email,
     };
 
-    // Record successful login
+    // Record successful login with valid profile
     const loginHistory = await recordLoginHistory(
       data.user,
-      profile || user,
+      profile,
       request,
       'SUCCESS'
     );
 
-    console.log(`Supabase authentication successful: ${user.username} (${user.role})`);
+    console.log(`✅ Authentication successful: ${user.username} (${user.role})`);
     
-    // Return success response with login history ID for potential logout tracking
     return NextResponse.json({
       success: true,
       message: 'Authentication successful',
@@ -208,20 +238,11 @@ export async function POST(request: NextRequest) {
       token: data.session.access_token,
       refreshToken: data.session.refresh_token,
       sessionId: data.session.access_token,
-      loginHistoryId: loginHistory?.id // For logout tracking
+      loginHistoryId: loginHistory?.id
     });
 
   } catch (error) {
     console.error('Supabase login error:', error);
-    
-    // Record failed login attempt
-    await recordLoginHistory(
-      null, 
-      null, 
-      request, 
-      'FAILED', 
-      'Internal server error'
-    );
     
     return NextResponse.json(
       { 

@@ -1,4 +1,4 @@
-// components/HierarchyTree3D.tsx - SAFE FALLBACK VERSION (NO THREE.JS)
+// components/HierarchyTree3D.tsx - FIXED VERSION
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -319,7 +319,7 @@ const HierarchyTree3D: React.FC<{
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['main-hq']));
   
   // Transform API data to hierarchy structure
-  const transformDataToHierarchy = useCallback((regions: ApiRegion[], allDrones: ApiDrone[]): HierarchyNode => {
+  const transformDataToHierarchy = useCallback((regions: any[], allDrones: any[]): HierarchyNode => {
     const mainHQ: HierarchyNode = {
       id: 'main-hq',
       type: 'MAIN_HQ',
@@ -336,16 +336,19 @@ const HierarchyTree3D: React.FC<{
         id: region.id,
         type: 'REGION',
         name: region.name,
-        area: region.area,
+        area: region.area || 'Unknown Area',
         commanderName: region.commanderName || undefined,
-        status: region.status,
-        userCount: region.userCount,
-        droneCount: region.droneCount,
+        status: region.status || 'ACTIVE',
+        userCount: region.userCount || 0,
+        droneCount: region.droneCount || 0,
         children: []
       };
 
+      // Add users if they exist
+      const users = region.users || [];
+      
       // Add regional commander
-      const commander = region.users.find(u => u.role === 'REGIONAL_HQ');
+      const commander = users.find && users.find((u: any) => u.role === 'REGIONAL_HQ');
       if (commander) {
         const commanderNode: HierarchyNode = {
           id: commander.id,
@@ -358,8 +361,8 @@ const HierarchyTree3D: React.FC<{
         };
 
         // Add operators under this commander
-        const operators = region.users.filter(u => u.role === 'OPERATOR');
-        operators.forEach((operator) => {
+        const operators = users.filter ? users.filter((u: any) => u.role === 'OPERATOR') : [];
+        operators.forEach((operator: any) => {
           const operatorNode: HierarchyNode = {
             id: operator.id,
             type: 'OPERATOR',
@@ -371,8 +374,8 @@ const HierarchyTree3D: React.FC<{
           };
 
           // Add drones operated by this operator
-          const operatorDrones = allDrones.filter(d => d.operatorId === operator.id);
-          operatorDrones.forEach((drone) => {
+          const operatorDrones = allDrones.filter ? allDrones.filter((d: any) => d.operatorId === operator.id) : [];
+          operatorDrones.forEach((drone: any) => {
             const droneNode: HierarchyNode = {
               id: drone.id,
               type: 'DRONE',
@@ -388,8 +391,8 @@ const HierarchyTree3D: React.FC<{
         });
 
         // Add region drones without operator
-        const regionDrones = allDrones.filter(d => d.regionId === region.id && !d.operatorId);
-        regionDrones.forEach((drone) => {
+        const regionDrones = allDrones.filter ? allDrones.filter((d: any) => d.regionId === region.id && !d.operatorId) : [];
+        regionDrones.forEach((drone: any) => {
           const droneNode: HierarchyNode = {
             id: drone.id,
             type: 'DRONE',
@@ -404,8 +407,8 @@ const HierarchyTree3D: React.FC<{
         regionNode.children.push(commanderNode);
       } else {
         // No commander, add drones directly to region
-        const regionDrones = allDrones.filter(d => d.regionId === region.id);
-        regionDrones.forEach((drone) => {
+        const regionDrones = allDrones.filter ? allDrones.filter((d: any) => d.regionId === region.id) : [];
+        regionDrones.forEach((drone: any) => {
           const droneNode: HierarchyNode = {
             id: drone.id,
             type: 'DRONE',
@@ -422,7 +425,7 @@ const HierarchyTree3D: React.FC<{
     });
 
     // Add unassigned drones
-    const unassignedDrones = allDrones.filter(d => !d.regionId);
+    const unassignedDrones = allDrones.filter ? allDrones.filter((d: any) => !d.regionId) : [];
     if (unassignedDrones.length > 0) {
       const unassignedNode: HierarchyNode = {
         id: 'unassigned',
@@ -432,7 +435,7 @@ const HierarchyTree3D: React.FC<{
         children: []
       };
 
-      unassignedDrones.forEach((drone) => {
+      unassignedDrones.forEach((drone: any) => {
         const droneNode: HierarchyNode = {
           id: drone.id,
           type: 'DRONE',
@@ -450,7 +453,7 @@ const HierarchyTree3D: React.FC<{
     return mainHQ;
   }, []);
 
-  // Fetch data from API
+  // Fetch data from frontend API routes
   const fetchHierarchyData = useCallback(async () => {
     if (!token) return;
     
@@ -458,15 +461,11 @@ const HierarchyTree3D: React.FC<{
     setError(null);
     
     try {
-      const baseUrl = process.env.NODE_ENV === 'production' 
-        ? 'http://user-management-service:4003'
-        : 'http://localhost:4003';
-
       const [regionsResponse, dronesResponse] = await Promise.all([
-        fetch(`${baseUrl}/api/regions`, {
+        fetch('/api/regions', {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`${baseUrl}/api/drones`, {
+        fetch('/api/drones', {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
@@ -478,11 +477,14 @@ const HierarchyTree3D: React.FC<{
       const regionsData = await regionsResponse.json();
       const dronesData = await dronesResponse.json();
 
-      if (!regionsData.success || !dronesData.success) {
-        throw new Error('API returned error');
-      }
+      console.log('Regions data:', regionsData);
+      console.log('Drones data:', dronesData);
 
-      const hierarchy = transformDataToHierarchy(regionsData.regions || [], dronesData.drones || []);
+      // Handle different response formats
+      const regions = regionsData.regions || regionsData || [];
+      const drones = dronesData.drones || dronesData || [];
+
+      const hierarchy = transformDataToHierarchy(regions, drones);
       setHierarchyData(hierarchy);
       
     } catch (err: any) {
