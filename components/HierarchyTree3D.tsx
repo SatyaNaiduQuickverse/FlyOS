@@ -79,20 +79,44 @@ const TreeNode: React.FC<{
   const isSelected = selectedNode?.id === node.id;
   const isExpanded = expandedNodes.has(node.id);
   const hasChildren = node.children && node.children.length > 0;
-  const indentation = level * 24;
+  const indentation = level * 20;
   const IconComponent = getNodeIcon(node.type);
   
   return (
     <div className="mb-1">
       <div
         style={{ paddingLeft: `${indentation}px` }}
-        className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-all ${
+        className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer transition-all text-sm ${
           isSelected 
-            ? 'ring-2 ring-blue-500 ' + getNodeColor(node)
+            ? 'ring-1 ring-blue-500 ' + getNodeColor(node)
             : 'hover:bg-gray-800/50 ' + getNodeColor(node)
         }`}
         onClick={() => onNodeClick(node)}
       >
+        {/* Connection Lines */}
+        {level > 0 && (
+          <div className="absolute left-0 flex">
+            {/* Vertical line from parent */}
+            <div 
+              className="border-l border-gray-600"
+              style={{ 
+                marginLeft: `${(level - 1) * 20 + 10}px`,
+                height: '100%',
+                width: '1px'
+              }}
+            />
+            {/* Horizontal line to node */}
+            <div 
+              className="border-t border-gray-600"
+              style={{ 
+                width: '10px',
+                height: '1px',
+                marginTop: '12px'
+              }}
+            />
+          </div>
+        )}
+        
         {/* Expand/Collapse Button */}
         {hasChildren ? (
           <button
@@ -100,30 +124,30 @@ const TreeNode: React.FC<{
               e.stopPropagation();
               onToggleExpand(node.id);
             }}
-            className="text-gray-400 hover:text-white p-1"
+            className="text-gray-400 hover:text-white p-0.5 relative z-10"
           >
             {isExpanded ? (
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="h-3 w-3" />
             ) : (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3 w-3" />
             )}
           </button>
         ) : (
-          <div className="w-6" /> // Spacer for alignment
+          <div className="w-4" /> // Spacer for alignment
         )}
         
         {/* Node Icon */}
-        <IconComponent className="h-5 w-5" />
+        <IconComponent className="h-4 w-4 flex-shrink-0" />
         
         {/* Node Content */}
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{node.name}</span>
-            <span className="text-xs px-2 py-1 rounded bg-gray-800/50">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium truncate">{node.name}</span>
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800/50 flex-shrink-0">
               {node.type}
             </span>
             {node.status && (
-              <span className="text-xs px-2 py-1 rounded bg-gray-700/50">
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/50 flex-shrink-0">
                 {node.status}
               </span>
             )}
@@ -131,12 +155,12 @@ const TreeNode: React.FC<{
           
           {/* Additional Info */}
           {(node.userCount !== undefined || node.droneCount !== undefined) && (
-            <div className="text-xs text-gray-400 mt-1 flex gap-3">
+            <div className="text-xs text-gray-400 mt-0.5 flex gap-2">
               {node.userCount !== undefined && (
-                <span>👥 {node.userCount} users</span>
+                <span>👥 {node.userCount}</span>
               )}
               {node.droneCount !== undefined && (
-                <span>🚁 {node.droneCount} drones</span>
+                <span>🚁 {node.droneCount}</span>
               )}
             </div>
           )}
@@ -144,26 +168,49 @@ const TreeNode: React.FC<{
         
         {/* Connection Indicator */}
         {hasChildren && (
-          <div className="text-gray-500 text-xs">
-            {node.children.length} {node.children.length === 1 ? 'child' : 'children'}
+          <div className="text-gray-500 text-xs flex-shrink-0">
+            {node.children.length}
           </div>
         )}
       </div>
       
       {/* Children */}
       {hasChildren && isExpanded && (
-        <div className="mt-1">
-          {node.children.map(child => (
-            <TreeNode
-              key={child.id}
-              node={child}
-              level={level + 1}
-              onNodeClick={onNodeClick}
-              selectedNode={selectedNode}
-              expandedNodes={expandedNodes}
-              onToggleExpand={onToggleExpand}
+        <div className="relative">
+          {/* Vertical line for children */}
+          {level >= 0 && (
+            <div 
+              className="absolute border-l border-gray-600"
+              style={{ 
+                left: `${level * 20 + 10}px`,
+                top: '0',
+                bottom: '0',
+                width: '1px'
+              }}
             />
-          ))}
+          )}
+          <div className="mt-1">
+            {node.children.map((child, index) => (
+              <div key={child.id} className="relative">
+                {/* Connection dots */}
+                <div 
+                  className="absolute w-1 h-1 bg-gray-500 rounded-full"
+                  style={{ 
+                    left: `${level * 20 + 9.5}px`,
+                    top: '12px'
+                  }}
+                />
+                <TreeNode
+                  node={child}
+                  level={level + 1}
+                  onNodeClick={onNodeClick}
+                  selectedNode={selectedNode}
+                  expandedNodes={expandedNodes}
+                  onToggleExpand={onToggleExpand}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -184,7 +231,7 @@ const NodeDetailPanel: React.FC<{
       <div className="flex justify-between items-start mb-4">
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-lg ${getNodeColor(node)}`}>
-            <IconComponent className="h-5 w-5" />
+            <IconComponent className="h-4 w-4" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{node.name}</h3>
@@ -195,7 +242,7 @@ const NodeDetailPanel: React.FC<{
           onClick={onClose}
           className="text-gray-400 hover:text-white transition-colors"
         >
-          <X className="h-5 w-5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
       
@@ -760,7 +807,7 @@ const HierarchyTree3D: React.FC<{
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/20 rounded-lg">
-              <Globe className="h-6 w-6 text-blue-400" />
+              <Globe className="h-5 w-5 text-blue-400" />
             </div>
             <div>
               <h2 className="text-xl font-semibold text-white">Command Hierarchy</h2>
@@ -791,7 +838,7 @@ const HierarchyTree3D: React.FC<{
               className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors text-white disabled:opacity-50"
               title="Refresh Data"
             >
-              <RotateCcw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+              <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             
             <button
@@ -802,14 +849,14 @@ const HierarchyTree3D: React.FC<{
               className="p-2 bg-purple-800 hover:bg-purple-700 rounded-lg transition-colors text-white"
               title="Debug Info (Check Console)"
             >
-              <Zap className="h-5 w-5" />
+              <Zap className="h-4 w-4" />
             </button>
             
             <button
               onClick={onClose}
               className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors text-white"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -833,7 +880,7 @@ const HierarchyTree3D: React.FC<{
         <div className="absolute inset-0 flex items-center justify-center z-20">
           <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-white">
             <div className="flex items-center gap-3">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
+              <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
               <span>Loading hierarchy data...</span>
             </div>
           </div>
