@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/redis.ts
+// services/drone-connection-service/src/redis.ts - PRODUCTION READY
 import Redis from 'ioredis';
 import { logger } from './utils/logger';
 
@@ -10,11 +10,33 @@ export const initRedis = async () => {
     
     redisClient = new Redis(redisUrl, {
       retryStrategy: (times) => Math.min(times * 50, 2000),
-      maxRetriesPerRequest: 3
+      maxRetriesPerRequest: 3,
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      reconnectOnError: (err) => {
+        const targetError = 'READONLY';
+        return err.message.includes(targetError);
+      }
     });
     
+    // Connect and test
+    await redisClient.connect();
     await redisClient.ping();
+    
     logger.info('✅ Redis connected for drone connection service');
+    
+    // Error handling
+    redisClient.on('error', (err) => {
+      logger.error('Redis error:', err);
+    });
+    
+    redisClient.on('connect', () => {
+      logger.info('Redis connected');
+    });
+    
+    redisClient.on('ready', () => {
+      logger.info('Redis ready');
+    });
     
   } catch (error) {
     logger.error('❌ Redis connection failed:', error);
@@ -37,6 +59,8 @@ export const storeDroneState = async (droneId: string, data: any) => {
     
     // Publish for real-time updates
     await redisClient.publish(`drone:${droneId}:updates`, value);
+    
+    logger.debug(`📊 Stored drone state for ${droneId}`);
     
   } catch (error) {
     logger.error(`❌ Redis store failed for ${droneId}:`, error);
@@ -61,5 +85,17 @@ export const updateDroneStatus = async (droneId: string, status: string) => {
     
   } catch (error) {
     logger.error(`❌ Status update failed for ${droneId}:`, error);
+  }
+};
+
+// Graceful shutdown
+export const closeRedis = async () => {
+  try {
+    if (redisClient) {
+      await redisClient.quit();
+      logger.info('Redis connection closed');
+    }
+  } catch (error) {
+    logger.error('Error closing Redis:', error);
   }
 };

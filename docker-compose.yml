@@ -92,15 +92,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # Drone Connection Service - NEW
+  # Drone Connection Service - FIXED: Only depends on Redis
   drone-connection-service:
     build:
       context: ./services/drone-connection-service
       dockerfile: Dockerfile
     depends_on:
       redis:
-        condition: service_healthy
-      drone-db-service:
         condition: service_healthy
     environment:
       - NODE_ENV=production
