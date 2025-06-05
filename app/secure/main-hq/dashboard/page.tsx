@@ -1,4 +1,6 @@
-// app/secure/main-hq/dashboard/page.tsx - UPDATED TO USE NEW USER MANAGEMENT
+// STEP 2: Update Main HQ Dashboard with Live Data
+// File: app/secure/main-hq/dashboard/page.tsx
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -23,16 +25,126 @@ interface Alert {
   time: string;
 }
 
+// Live drone status hook for dashboard
+const useLiveDroneStatus = () => {
+  const [status, setStatus] = useState({
+    totalDrones: 0,
+    activeDrones: 0,
+    onlineDrones: 0,
+    offlineDrones: 0,
+    maintenanceDrones: 0,
+    activeMissions: 0,
+    isLoading: true
+  });
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        // Get overall drone status
+        const statusResponse = await fetch('/api/drone-status');
+        const statusData = await statusResponse.json();
+        
+        const totalConnected = statusData.totalConnected || 0;
+        
+        // Get individual drone data for detailed stats
+        const dronePromises = Array.from({length: 10}, (_, i) => 
+          fetch(`/api/drone-telemetry/drone-${String(i + 1).padStart(3, '0')}`)
+            .then(res => res.json())
+            .catch(() => null)
+        );
+        
+        const droneData = await Promise.all(dronePromises);
+        const validDrones = droneData.filter(d => d && d.latitude);
+        
+        // Calculate statistics
+        const activeDrones = validDrones.filter(d => d.connected && d.armed).length;
+        const onlineDrones = validDrones.filter(d => d.connected).length;
+        const offlineDrones = 10 - onlineDrones;
+        
+        // Simulate maintenance drones (those offline for extended periods)
+        const maintenanceDrones = Math.max(0, 10 - totalConnected - 1);
+        
+        // Simulate active missions (armed drones)
+        const activeMissions = Math.floor(activeDrones * 0.8); // 80% of armed drones on missions
+        
+        setStatus({
+          totalDrones: 10,
+          activeDrones,
+          onlineDrones,
+          offlineDrones,
+          maintenanceDrones,
+          activeMissions,
+          isLoading: false
+        });
+        
+      } catch (error) {
+        console.error('Error fetching drone status:', error);
+        setStatus(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // Update every 5 seconds
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  return status;
+};
+
 export default function MainHQDashboard() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [showLoginHistory, setShowLoginHistory] = useState<boolean>(false);
+  const router = useRouter();
+  
+  // Live drone status
+  const droneStatus = useLiveDroneStatus();
+  
+  // Enhanced alerts with live data
   const [alerts, setAlerts] = useState<Alert[]>([
     { id: 1, type: 'warning', message: 'Drone drone-003 scheduled for maintenance in 2 days', time: '10:15 AM' },
     { id: 2, type: 'critical', message: 'Unauthorized access attempt detected from 198.51.100.24', time: '09:42 AM' },
     { id: 3, type: 'info', message: 'System update completed successfully', time: 'Yesterday' },
   ]);
-  const router = useRouter();
+
+  // Add live alerts based on drone status
+  useEffect(() => {
+    if (!droneStatus.isLoading) {
+      const newAlerts = [...alerts];
+      
+      // Add low battery alerts
+      if (droneStatus.activeDrones > 0) {
+        const batteryAlert = {
+          id: Date.now(),
+          type: 'warning' as const,
+          message: `${droneStatus.activeDrones} drones currently in active missions`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        
+        // Only add if not already present
+        if (!newAlerts.some(alert => alert.message.includes('active missions'))) {
+          newAlerts.unshift(batteryAlert);
+        }
+      }
+      
+      // Add offline alerts
+      if (droneStatus.offlineDrones > 3) {
+        const offlineAlert = {
+          id: Date.now() + 1,
+          type: 'critical' as const,
+          message: `${droneStatus.offlineDrones} drones currently offline - check connections`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        
+        if (!newAlerts.some(alert => alert.message.includes('drones currently offline'))) {
+          newAlerts.unshift(offlineAlert);
+        }
+      }
+      
+      setAlerts(newAlerts.slice(0, 5)); // Keep only 5 most recent
+    }
+  }, [droneStatus]);
 
   useEffect(() => {
     if (user && user.role !== UserRole.MAIN_HQ) {
@@ -58,7 +170,7 @@ export default function MainHQDashboard() {
               />
               <div className="h-[1px] w-48 bg-gradient-to-r from-blue-500/40 to-transparent" />
               <p className="text-sm text-gray-400 tracking-[0.3em] mt-2 font-light">
-                MAIN HQ INTERFACE
+                MAIN HQ INTERFACE - LIVE DATA
               </p>
             </div>
             <div className="flex items-center gap-5">
@@ -72,7 +184,7 @@ export default function MainHQDashboard() {
                 
                 <div className="absolute right-0 mt-2 w-80 bg-gray-900 rounded-lg shadow-xl border border-gray-800 hidden group-hover:block z-50">
                   <div className="p-3 border-b border-gray-800">
-                    <p className="text-sm font-medium">Notifications</p>
+                    <p className="text-sm font-medium">Live Notifications</p>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {alerts.map(alert => (
@@ -213,11 +325,14 @@ export default function MainHQDashboard() {
         {/* Tab Content */}
         {activeTab === 'overview' && (
           <>
+            {/* LIVE DRONE STATISTICS */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
                 <h3 className="text-lg font-light tracking-wider mb-4 text-blue-300">Global Fleet Status</h3>
                 <div className="relative">
-                  <div className="text-6xl font-extralight text-white">142</div>
+                  <div className="text-6xl font-extralight text-white">
+                    {droneStatus.isLoading ? '...' : droneStatus.totalDrones}
+                  </div>
                   <div className="absolute -top-1 -right-1 text-sm bg-blue-500/20 px-2 py-0.5 rounded-md border border-blue-500/30">
                     TOTAL
                   </div>
@@ -225,15 +340,21 @@ export default function MainHQDashboard() {
                 <p className="text-gray-400 mt-1">Drone units deployed</p>
                 <div className="mt-6 grid grid-cols-3 gap-3">
                   <div className="bg-gray-800/80 rounded-lg p-3">
-                    <div className="text-white font-light text-2xl">119</div>
-                    <div className="text-xs text-blue-400 mt-1">ACTIVE</div>
+                    <div className="text-white font-light text-2xl">
+                      {droneStatus.isLoading ? '...' : droneStatus.onlineDrones}
+                    </div>
+                    <div className="text-xs text-blue-400 mt-1">ONLINE</div>
                   </div>
                   <div className="bg-gray-800/80 rounded-lg p-3">
-                    <div className="text-white font-light text-2xl">14</div>
+                    <div className="text-white font-light text-2xl">
+                      {droneStatus.isLoading ? '...' : droneStatus.maintenanceDrones}
+                    </div>
                     <div className="text-xs text-yellow-400 mt-1">MAINTENANCE</div>
                   </div>
                   <div className="bg-gray-800/80 rounded-lg p-3">
-                    <div className="text-white font-light text-2xl">9</div>
+                    <div className="text-white font-light text-2xl">
+                      {droneStatus.isLoading ? '...' : droneStatus.offlineDrones}
+                    </div>
                     <div className="text-xs text-red-400 mt-1">OFFLINE</div>
                   </div>
                 </div>
@@ -242,7 +363,9 @@ export default function MainHQDashboard() {
               <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
                 <h3 className="text-lg font-light tracking-wider mb-4 text-blue-300">Active Missions</h3>
                 <div className="relative">
-                  <div className="text-6xl font-extralight text-white">38</div>
+                  <div className="text-6xl font-extralight text-white">
+                    {droneStatus.isLoading ? '...' : droneStatus.activeMissions}
+                  </div>
                   <div className="absolute -top-1 -right-1 text-sm bg-blue-500/20 px-2 py-0.5 rounded-md border border-blue-500/30">
                     ACTIVE
                   </div>
@@ -251,14 +374,18 @@ export default function MainHQDashboard() {
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <div className="bg-gray-800/80 rounded-lg p-3">
                     <div className="flex justify-between items-center mb-1">
-                      <div className="text-white font-light text-2xl">24</div>
+                      <div className="text-white font-light text-2xl">
+                        {droneStatus.isLoading ? '...' : Math.floor(droneStatus.activeMissions * 0.6)}
+                      </div>
                       <Plane className="h-5 w-5 text-blue-400" />
                     </div>
                     <div className="text-xs text-blue-400">SURVEILLANCE</div>
                   </div>
                   <div className="bg-gray-800/80 rounded-lg p-3">
                     <div className="flex justify-between items-center mb-1">
-                      <div className="text-white font-light text-2xl">14</div>
+                      <div className="text-white font-light text-2xl">
+                        {droneStatus.isLoading ? '...' : Math.floor(droneStatus.activeMissions * 0.4)}
+                      </div>
                       <Plane className="h-5 w-5 text-blue-400" />
                     </div>
                     <div className="text-xs text-blue-400">TRANSPORT</div>
@@ -286,6 +413,7 @@ export default function MainHQDashboard() {
               </div>
             </div>
             
+            {/* LIVE SYSTEM STATUS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm">
                 <h3 className="text-lg font-light tracking-wider mb-4 text-blue-300">User Information</h3>
@@ -332,15 +460,17 @@ export default function MainHQDashboard() {
                   <div className="flex items-center p-3 bg-gray-800/80 rounded-lg">
                     <div className="w-3 h-3 rounded-full bg-blue-500 mr-3"></div>
                     <div className="flex justify-between items-center w-full">
-                      <span className="text-sm text-gray-300">Token Refresh Service</span>
+                      <span className="text-sm text-gray-300">Redis Data Pipeline</span>
                       <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">ACTIVE</span>
                     </div>
                   </div>
                   <div className="flex items-center p-3 bg-gray-800/80 rounded-lg">
                     <div className="w-3 h-3 rounded-full bg-blue-500 mr-3"></div>
                     <div className="flex justify-between items-center w-full">
-                      <span className="text-sm text-gray-300">Login Monitoring</span>
-                      <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">ENABLED</span>
+                      <span className="text-sm text-gray-300">Live Telemetry</span>
+                      <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">
+                        {droneStatus.isLoading ? 'LOADING' : 'ENABLED'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -357,10 +487,7 @@ export default function MainHQDashboard() {
         )}
 
         {activeTab === 'regional' && <RegionalConsole />}
-        
-        {/* UPDATED: Use new UserManagement component */}
         {activeTab === 'users' && <UserManagement />}
-
         {activeTab === 'logs' && (
           <div className="bg-gray-900/80 shadow-lg rounded-lg p-6 backdrop-blur-sm">
             <h2 className="text-xl font-light tracking-wider mb-6 text-blue-300">System Logs</h2>
@@ -371,6 +498,7 @@ export default function MainHQDashboard() {
           </div>
         )}
         
+        {/* LIVE DRONE CONTROL HUB */}
         {activeTab === 'drone-control' && <DroneControlHub />}
       </main>
     </div>
