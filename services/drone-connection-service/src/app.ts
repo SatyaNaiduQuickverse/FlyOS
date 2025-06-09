@@ -1,10 +1,11 @@
-// services/drone-connection-service/src/app.ts - PRODUCTION READY
+// services/drone-connection-service/src/app.ts - UPDATED WITH COMMAND HANDLER
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { setupDroneHandler } from './droneHandler';
+import { setupCommandHandler } from './commandHandler';
 import { initRedis } from './redis';
 import { logger } from './utils/logger';
 
@@ -91,6 +92,10 @@ const startServer = async () => {
     setupDroneHandler(io);
     logger.info('✅ Drone handlers configured');
     
+    // Setup command handler for bidirectional communication
+    setupCommandHandler(io);
+    logger.info('✅ Command handler configured');
+    
     // Global connected drones registry
     global.connectedDrones = {};
     
@@ -99,6 +104,7 @@ const startServer = async () => {
       logger.info(`📡 WebSocket endpoint: ws://localhost:${PORT}`);
       logger.info(`📊 Status endpoint: http://localhost:${PORT}/status`);
       logger.info(`🔴 Redis endpoint: http://localhost:${PORT}/redis/:droneId`);
+      logger.info(`🎮 Command channels: drone:*:commands`);
     });
     
   } catch (error) {

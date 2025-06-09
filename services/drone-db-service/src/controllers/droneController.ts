@@ -1,4 +1,4 @@
-// services/drone-db-service/src/controllers/droneController.ts - FIXED VERSION
+// services/drone-db-service/src/controllers/droneController.ts - UPDATED COMMAND CONTROLLER
 import { Request, Response } from 'express';
 import { 
   storeTelemetryData, 
@@ -7,16 +7,15 @@ import {
   getCommandHistory
 } from '../services/droneService';
 import { pool } from '../database';
+import { redisClient } from '../redis';
 import { logger } from '../utils/logger';
 
 // Get drone state from Redis (with fallback)
 const getDroneStateFromRedis = async (droneId: string) => {
   try {
-    // Try to import and use Redis
     const { getDroneState } = await import('../redis');
     return await getDroneState(droneId);
   } catch (error) {
-    // Redis not available, return null
     logger.warn(`Redis not available for drone ${droneId}, using database only`);
     return null;
   }
@@ -25,7 +24,6 @@ const getDroneStateFromRedis = async (droneId: string) => {
 // Get all drones (with role-based filtering)
 export const getAllDronesController = async (req: Request, res: Response) => {
   try {
-    // Check if user is authenticated
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -38,18 +36,14 @@ export const getAllDronesController = async (req: Request, res: Response) => {
     let whereClause = '';
     let values: any[] = [];
     
-    // Apply role-based filtering
     if (role === 'MAIN_HQ') {
-      // Main HQ can see all drones
       whereClause = '';
     } else if (role === 'REGIONAL_HQ') {
-      // Regional HQ can only see drones in their region
       whereClause = 'WHERE d.region_id = $1';
       values = [region_id];
     } else if (role === 'OPERATOR') {
-      // Operators can only see drones assigned to them
       whereClause = 'WHERE d.operator_id = $1';
-      values = [req.user.username]; // Use username for now since we're using TEXT
+      values = [req.user.username];
     } else {
       return res.status(403).json({
         success: false,
@@ -57,7 +51,6 @@ export const getAllDronesController = async (req: Request, res: Response) => {
       });
     }
     
-    // Simplified query without complex joins
     const query = `
       SELECT 
         d.id,
@@ -75,19 +68,15 @@ export const getAllDronesController = async (req: Request, res: Response) => {
       ORDER BY d.status, d.id;
     `;
     
-    logger.info(`Executing query: ${query} with values: ${JSON.stringify(values)}`);
-    
     const result = await pool.query(query, values);
     const drones = result.rows;
     
-    // Enhance with real-time state from Redis (if available)
     const enhancedDrones = await Promise.all(
       drones.map(async (drone) => {
         try {
           const realTimeState = await getDroneStateFromRedis(drone.id);
           return {
             ...drone,
-            // Add real-time telemetry data if available
             latitude: realTimeState?.latitude || null,
             longitude: realTimeState?.longitude || null,
             altitude: realTimeState?.altitudeRelative || null,
@@ -223,13 +212,18 @@ export const getHistoricalTelemetryController = async (req: Request, res: Respon
   }
 };
 
-// Send command to drone
+// Helper function to determine if command is manual control
+const isManualControl = (commandType: string): boolean => {
+  const manualControls = ['throttle', 'yaw', 'pitch', 'roll', 'move', 'pwm_update'];
+  return manualControls.includes(commandType.toLowerCase());
+};
+
+// Send command to drone - UPDATED WITH REDIS PUBLISHING
 export const sendCommandController = async (req: Request, res: Response) => {
   try {
     const { droneId } = req.params;
     const { commandType, parameters } = req.body;
     
-    // Check if user is authenticated
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -246,18 +240,91 @@ export const sendCommandController = async (req: Request, res: Response) => {
       });
     }
     
-    const command = await recordCommand(droneId, userId, commandType, parameters || {});
+    // Create command payload
+    const commandPayload = {
+      id: Date.now(),
+      droneId,
+      commandType,
+      parameters: parameters || {},
+      userId,
+      timestamp: new Date().toISOString()
+    };
     
-    return res.status(200).json({
-      success: true,
-      message: 'Command sent successfully',
-      commandId: command.id
-    });
+    logger.info(`📤 Sending command to ${droneId}: ${commandType}`);
+    
+    try {
+      // Check if this is a manual control command
+      if (isManualControl(commandType)) {
+        logger.debug(`⚡ Manual control command: ${commandType} - using fast path`);
+        
+        // Fast path: publish to Redis immediately
+        await redisClient.publish(
+          `drone:${droneId}:commands`,
+          JSON.stringify(commandPayload)
+        );
+        
+        // Background logging (non-blocking)
+        recordCommand(droneId, userId, commandType, parameters || {})
+          .catch(err => logger.warn(`Background logging failed for ${commandType}:`, err));
+        
+        logger.info(`⚡ Fast command sent to ${droneId}: ${commandType}`);
+        
+      } else {
+        logger.debug(`🔒 Critical command: ${commandType} - using safe path`);
+        
+        // Critical commands: wait for database logging first
+        const command = await recordCommand(droneId, userId, commandType, parameters || {});
+        
+        // Then publish to Redis
+        const payloadWithDbId = {
+          ...commandPayload,
+          dbId: command.id
+        };
+        
+        await redisClient.publish(
+          `drone:${droneId}:commands`,
+          JSON.stringify(payloadWithDbId)
+        );
+        
+        logger.info(`🔒 Critical command sent to ${droneId}: ${commandType}`);
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Command sent successfully',
+        commandId: commandPayload.id,
+        droneId: droneId,
+        commandType: commandType,
+        timestamp: commandPayload.timestamp
+      });
+      
+    } catch (redisError) {
+      logger.error(`Redis publish failed for ${droneId}:`, redisError);
+      
+      // Fallback: still try to record in database
+      try {
+        const command = await recordCommand(droneId, userId, commandType, parameters || {});
+        return res.status(202).json({
+          success: true,
+          message: 'Command recorded but real-time delivery failed',
+          commandId: command.id,
+          warning: 'Drone may not receive command immediately'
+        });
+      } catch (dbError) {
+        logger.error(`Database recording also failed:`, dbError);
+        return res.status(500).json({
+          success: false,
+          message: 'Command failed - both Redis and database unavailable'
+        });
+      }
+    }
+    
   } catch (error) {
     logger.error(`Error sending command: ${error}`);
     return res.status(500).json({ 
       success: false, 
-      message: 'Server error' 
+      message: 'Server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 };

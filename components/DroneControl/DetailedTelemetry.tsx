@@ -1,285 +1,407 @@
-// components/DroneControl/DetailedTelemetry.tsx
+// components/DroneControl/TelemetryDashboard.tsx - WITH LIVE DATA INTEGRATION
 import React, { useState, useEffect } from 'react';
-import { LineChart, Clock, Database, Download, Filter, ArrowDownCircle } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import { Activity, Compass, Globe, Clock, Wind, Thermometer, AlertCircle } from 'lucide-react';
 
-interface DetailedTelemetryProps {
-  // Since drone isn't used, we can either remove it or keep the interface minimal
-  droneId?: string;
+interface Coordinates {
+  lat: number;
+  lng: number;
 }
 
-interface TelemetryLogEntry {
-  timestamp: Date;
-  altitude: number;
-  speed: number;
-  heading: number;
-  battery: number;
-  signalStrength: number;
-  coordinates: {
-    lat: number;
-    lng: number;
+interface LiveTelemetryData {
+  latitude: number;
+  longitude: number;
+  altitude_relative: number;
+  altitude_msl: number;
+  percentage: number;
+  armed: boolean;
+  flight_mode: string;
+  connected: boolean;
+  voltage: number;
+  current: number;
+  gps_fix: string;
+  satellites: number;
+  roll: number;
+  pitch: number;
+  yaw: number;
+  velocity_x: number;
+  velocity_y: number;
+  velocity_z: number;
+  timestamp: string;
+}
+
+interface TelemetryDashboardProps {
+  drone: {
+    id?: string;
+    altitude?: number;
+    speed?: number;
+    heading?: number;
+    coordinates?: Coordinates;
   };
 }
 
-const DetailedTelemetry: React.FC<DetailedTelemetryProps> = () => {
-  const [timeRange, setTimeRange] = useState('15min');
-  const [isRecording, setIsRecording] = useState(false);
-  const [telemetryLog, setTelemetryLog] = useState<TelemetryLogEntry[]>([]);
-  
-  // Simulate fetching telemetry logs
-  useEffect(() => {
-    // This would be replaced with actual API call
-    const generateLogs = () => {
-      const now = new Date();
-      const logs: TelemetryLogEntry[] = [];
+const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
+  // Get droneId from URL params
+  const params = useParams();
+  const droneId = params?.droneId as string;
+
+  // Live telemetry state
+  const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetryData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
+
+  // Calculated values from telemetry
+  const [telemetry, setTelemetry] = useState({
+    altitude: 0,
+    speed: 0,
+    heading: 0,
+    coordinates: { lat: 0, lng: 0 },
+    temperature: 23,
+    windSpeed: 12,
+    lastUpdated: new Date(),
+    signalLatency: 45,
+  });
+
+  // Fetch live telemetry data
+  const fetchTelemetry = async () => {
+    if (!droneId) {
+      setError('No drone ID found in URL');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setError(null);
+      const response = await fetch(`/api/drone-telemetry/${droneId}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
       
-      // Generate dummy logs for the last hour
-      for (let i = 60; i >= 0; i--) {
-        const timestamp = new Date(now.getTime() - i * 60000);
-        logs.push({
-          timestamp,
-          altitude: 500 + Math.sin(i / 5) * 100 + Math.random() * 50,
-          speed: 40 + Math.cos(i / 10) * 15 + Math.random() * 5,
-          heading: (i * 6) % 360,
-          battery: 100 - (i * 0.5),
-          signalStrength: 95 - Math.sin(i / 8) * 10,
-          coordinates: {
-            lat: 40.7128 + (Math.sin(i / 30) * 0.01),
-            lng: -74.0060 + (Math.cos(i / 20) * 0.01)
-          }
-        });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       
-      setTelemetryLog(logs);
-    };
-    
-    generateLogs();
-    
-    // Simulate real-time updates
-    if (isRecording) {
-      const interval = setInterval(() => {
-        setTelemetryLog(prev => {
-          if (prev.length === 0) return prev;
-          
-          const lastEntry = prev[prev.length - 1];
-          const newTimestamp = new Date();
-          
-          const newEntry: TelemetryLogEntry = {
-            timestamp: newTimestamp,
-            altitude: lastEntry.altitude + (Math.random() * 20 - 10),
-            speed: lastEntry.speed + (Math.random() * 5 - 2.5),
-            heading: (lastEntry.heading + (Math.random() * 10 - 5)) % 360,
-            battery: lastEntry.battery - 0.1,
-            signalStrength: Math.min(Math.max(lastEntry.signalStrength + (Math.random() * 4 - 2), 60), 100),
-            coordinates: {
-              lat: lastEntry.coordinates.lat + (Math.random() * 0.001 - 0.0005),
-              lng: lastEntry.coordinates.lng + (Math.random() * 0.001 - 0.0005)
-            }
-          };
-          
-          return [...prev.slice(1), newEntry];
-        });
-      }, 5000);
+      const data = await response.json();
       
+      if (data && data.latitude) {
+        setLiveTelemetry(data);
+        setLastUpdateTime(new Date());
+        
+        // Calculate speed from velocity components
+        const speed = Math.sqrt(
+          Math.pow(data.velocity_x || 0, 2) + 
+          Math.pow(data.velocity_y || 0, 2)
+        ) * 3.6; // Convert m/s to km/h
+        
+        // Convert yaw from radians to degrees
+        const heading = ((data.yaw || 0) * 180 / Math.PI + 360) % 360;
+        
+        // Update calculated telemetry
+        setTelemetry(prev => ({
+          ...prev,
+          altitude: data.altitude_relative || 0,
+          speed: speed,
+          heading: heading,
+          coordinates: { lat: data.latitude, lng: data.longitude },
+          lastUpdated: new Date(),
+          signalLatency: Math.random() * 50 + 25, // Simulated latency
+          temperature: 20 + Math.random() * 10, // Simulated temperature
+          windSpeed: 5 + Math.random() * 15, // Simulated wind
+        }));
+        
+        setIsLoading(false);
+      } else {
+        setError('No telemetry data available');
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error('Error fetching telemetry:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch telemetry');
+      setIsLoading(false);
+    }
+  };
+
+  // Initial fetch and polling
+  useEffect(() => {
+    if (droneId) {
+      fetchTelemetry();
+      const interval = setInterval(fetchTelemetry, 2000);
       return () => clearInterval(interval);
     }
-  }, [isRecording]);
-  
-  const filteredLogs = () => {
-    const now = new Date();
-    let cutoff: Date;
-    
-    switch (timeRange) {
-      case '5min':
-        cutoff = new Date(now.getTime() - 5 * 60000);
-        break;
-      case '15min':
-        cutoff = new Date(now.getTime() - 15 * 60000);
-        break;
-      case '30min':
-        cutoff = new Date(now.getTime() - 30 * 60000);
-        break;
-      case '1hour':
-        cutoff = new Date(now.getTime() - 60 * 60000);
-        break;
-      default:
-        cutoff = new Date(now.getTime() - 15 * 60000);
-    }
-    
-    return telemetryLog.filter(log => log.timestamp >= cutoff);
+  }, [droneId]);
+
+  const formatCoordinates = (coords: Coordinates) => {
+    return `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
   };
-  
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const getHeadingDirection = (heading: number) => {
+    if (heading > 337.5 || heading <= 22.5) return 'N';
+    if (heading > 22.5 && heading <= 67.5) return 'NE';
+    if (heading > 67.5 && heading <= 112.5) return 'E';
+    if (heading > 112.5 && heading <= 157.5) return 'SE';
+    if (heading > 157.5 && heading <= 202.5) return 'S';
+    if (heading > 202.5 && heading <= 247.5) return 'SW';
+    if (heading > 247.5 && heading <= 292.5) return 'W';
+    return 'NW';
   };
-  
+
+  const getLatencyColor = (latency: number) => {
+    if (latency < 50) return 'text-green-500';
+    if (latency < 100) return 'text-yellow-500';
+    return 'text-red-500';
+  };
+
+  const getBatteryColor = (percentage: number) => {
+    if (percentage > 70) return 'text-green-400';
+    if (percentage > 30) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+          <div className="flex items-center justify-center p-8">
+            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mr-4"></div>
+            <span className="text-gray-400">Loading telemetry dashboard...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+          <div className="bg-red-500/10 border border-red-500/30 text-red-300 p-4 rounded-lg flex items-center gap-3">
+            <AlertCircle className="h-5 w-5" />
+            <div>
+              <div className="font-medium">Telemetry Error</div>
+              <div className="text-sm">{error}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Main telemetry panel */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-2">
-            <LineChart className="h-5 w-5 text-blue-400" />
-            <h3 className="text-lg font-light tracking-wider text-blue-300">TELEMETRY LOGS</h3>
-          </div>
+          <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            TELEMETRY DASHBOARD
+          </h3>
           
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Clock className="h-4 w-4 text-gray-400" />
-              <select
-                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm"
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-              >
-                <option value="5min">Last 5 minutes</option>
-                <option value="15min">Last 15 minutes</option>
-                <option value="30min">Last 30 minutes</option>
-                <option value="1hour">Last hour</option>
-              </select>
+          <div className="flex items-center gap-4 text-sm text-gray-400">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${liveTelemetry?.connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span>{liveTelemetry?.connected ? 'LIVE' : 'OFFLINE'}</span>
             </div>
-            
-            <button
-              onClick={() => setIsRecording(!isRecording)}
-              className={`px-4 py-1.5 rounded-lg text-sm flex items-center gap-2 ${
-                isRecording 
-                  ? 'bg-red-500/20 border border-red-500/30 text-red-300' 
-                  : 'bg-blue-500/20 border border-blue-500/30 text-blue-300'
-              }`}
-            >
-              {isRecording ? (
-                <>
-                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
-                  <span>Recording</span>
-                </>
-              ) : (
-                <>
-                  <Database className="h-4 w-4" />
-                  <span>Start Recording</span>
-                </>
-              )}
-            </button>
-            
-            <button className="p-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors">
-              <Download className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              <span>Last: {lastUpdateTime?.toLocaleTimeString()}</span>
+            </div>
           </div>
         </div>
         
-        {/* Telemetry Chart - This would be replaced with a real chart library like recharts */}
-        <div className="bg-gray-800/80 rounded-lg border border-gray-700 p-4 h-80 relative">
-          {/* Chart placeholder */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <p className="text-gray-400">Telemetry data chart would be rendered here</p>
-          </div>
-          
-          {/* Y-axis labels */}
-          <div className="absolute left-4 top-0 bottom-0 flex flex-col justify-between text-xs text-gray-400">
-            <span>1000m</span>
-            <span>750m</span>
-            <span>500m</span>
-            <span>250m</span>
-            <span>0m</span>
-          </div>
-          
-          {/* X-axis labels */}
-          <div className="absolute left-12 right-4 bottom-4 flex justify-between text-xs text-gray-400">
-            {filteredLogs().length > 0 && (
-              <>
-                <span>{formatTime(filteredLogs()[0].timestamp)}</span>
-                <span>{formatTime(filteredLogs()[Math.floor(filteredLogs().length/3)].timestamp)}</span>
-                <span>{formatTime(filteredLogs()[Math.floor(filteredLogs().length*2/3)].timestamp)}</span>
-                <span>{formatTime(filteredLogs()[filteredLogs().length-1].timestamp)}</span>
-              </>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">ALTITUDE</div>
+            <div className="text-2xl font-light text-white">{Math.round(telemetry.altitude)}</div>
+            <div className="text-xs text-blue-400">METERS</div>
+            {liveTelemetry && (
+              <div className="text-xs text-gray-500 mt-1">
+                MSL: {Math.round(liveTelemetry.altitude_msl)}m
+              </div>
             )}
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">SPEED</div>
+            <div className="text-2xl font-light text-white">{Math.round(telemetry.speed)}</div>
+            <div className="text-xs text-blue-400">KM/H</div>
+            {liveTelemetry && (
+              <div className="text-xs text-gray-500 mt-1">
+                V↑: {(liveTelemetry.velocity_z * 3.6).toFixed(1)} km/h
+              </div>
+            )}
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">HEADING</div>
+            <div className="text-2xl font-light text-white">
+              {Math.round(telemetry.heading)}° {getHeadingDirection(telemetry.heading)}
+            </div>
+            <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
+              <Compass className="h-3 w-3" />
+              <span>COMPASS</span>
+            </div>
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">BATTERY</div>
+            <div className={`text-2xl font-light ${getBatteryColor(liveTelemetry?.percentage || 0)}`}>
+              {liveTelemetry?.percentage || 0}%
+            </div>
+            <div className="text-xs text-blue-400">
+              {liveTelemetry?.voltage?.toFixed(1)}V
+            </div>
+          </div>
+        </div>
+
+        {/* Additional telemetry row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">GPS</div>
+            <div className="text-lg font-light text-white">{liveTelemetry?.satellites || 0}</div>
+            <div className="text-xs text-blue-400">{liveTelemetry?.gps_fix || 'UNKNOWN'}</div>
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">FLIGHT MODE</div>
+            <div className="text-lg font-light text-white">{liveTelemetry?.flight_mode || 'UNKNOWN'}</div>
+            <div className={`text-xs ${liveTelemetry?.armed ? 'text-red-400' : 'text-green-400'}`}>
+              {liveTelemetry?.armed ? 'ARMED' : 'DISARMED'}
+            </div>
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">ROLL/PITCH</div>
+            <div className="text-lg font-light text-white">
+              {((liveTelemetry?.roll || 0) * 180 / Math.PI).toFixed(1)}°
+            </div>
+            <div className="text-xs text-blue-400">
+              P: {((liveTelemetry?.pitch || 0) * 180 / Math.PI).toFixed(1)}°
+            </div>
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+            <div className="text-xs text-gray-400 mb-1">COORDINATES</div>
+            <div className="text-sm font-light text-white">{formatCoordinates(telemetry.coordinates)}</div>
+            <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
+              <Globe className="h-3 w-3" />
+              <span>GPS</span>
+            </div>
           </div>
         </div>
       </div>
       
-      {/* Telemetry Log Table */}
+      {/* Environmental data */}
+      <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+        <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2 mb-6">
+          <Wind className="h-5 w-5" />
+          ENVIRONMENTAL DATA
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-gray-800/80 p-4 rounded-lg">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-xs text-gray-400 mb-1">TEMPERATURE</div>
+                <div className="flex items-center">
+                  <Thermometer className="h-5 w-5 mr-2 text-blue-400" />
+                  <span className="text-xl font-light text-white">{Math.round(telemetry.temperature)}°C</span>
+                </div>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <span className="text-white font-medium">{Math.round(telemetry.temperature)}°</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-xs text-gray-400 mb-1">WIND SPEED</div>
+                <div className="flex items-center">
+                  <Wind className="h-5 w-5 mr-2 text-blue-400" />
+                  <span className="text-xl font-light text-white">{Math.round(telemetry.windSpeed)} km/h</span>
+                </div>
+              </div>
+              <div className="text-xs px-2 py-1 rounded-lg bg-gray-700 text-gray-300 border border-gray-600">
+                {telemetry.windSpeed < 10 ? 'Low' : telemetry.windSpeed < 20 ? 'Moderate' : 'High'}
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gray-800/80 p-4 rounded-lg">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-xs text-gray-400 mb-1">SIGNAL LATENCY</div>
+                <div className="flex items-center">
+                  <Clock className={`h-5 w-5 mr-2 ${getLatencyColor(telemetry.signalLatency)}`} />
+                  <span className={`text-xl font-light ${getLatencyColor(telemetry.signalLatency)}`}>
+                    {Math.round(telemetry.signalLatency)} ms
+                  </span>
+                </div>
+              </div>
+              <div className="text-xs px-2 py-1 rounded-lg bg-gray-700 text-gray-300 border border-gray-600">
+                {telemetry.signalLatency < 50 ? 'Excellent' : telemetry.signalLatency < 100 ? 'Good' : 'Poor'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Live position map */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-sm font-medium text-blue-300 flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            TELEMETRY LOG
+          <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            LIVE POSITION
           </h3>
-          
-          <div className="flex items-center gap-2">
-            <button className="p-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors">
-              <Filter className="h-4 w-4" />
-            </button>
-            <button className="p-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors">
-              <ArrowDownCircle className="h-4 w-4" />
-            </button>
+          <div className="text-sm text-gray-400">
+            Updated: {telemetry.lastUpdated.toLocaleTimeString()}
           </div>
         </div>
         
-        <div className="overflow-x-auto max-h-96">
-          <table className="min-w-full divide-y divide-gray-700">
-            <thead className="bg-gray-800/80">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Timestamp
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Altitude
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Speed
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Heading
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Battery
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Signal
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Coordinates
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-gray-900/30 divide-y divide-gray-800">
-              {filteredLogs().slice(-10).reverse().map((log, index) => (
-                <tr key={index} className={index % 2 === 0 ? 'bg-gray-800/20' : 'bg-gray-800/40'}>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm text-white">
-                    {formatTime(log.timestamp)}
-                  </td>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm text-white">
-                    {Math.round(log.altitude)} m
-                  </td>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm text-white">
-                    {Math.round(log.speed)} km/h
-                  </td>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm text-white">
-                    {Math.round(log.heading)}°
-                  </td>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm">
-                    <span className={
-                      log.battery > 70 ? 'text-green-400' : 
-                      log.battery > 30 ? 'text-yellow-400' : 'text-red-400'
-                    }>
-                      {Math.round(log.battery)}%
-                    </span>
-                  </td>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm">
-                    <span className={
-                      log.signalStrength > 80 ? 'text-green-400' : 
-                      log.signalStrength > 60 ? 'text-yellow-400' : 'text-red-400'
-                    }>
-                      {Math.round(log.signalStrength)}%
-                    </span>
-                  </td>
-                  <td className="px-6 py-2 whitespace-nowrap text-sm text-white">
-                    {log.coordinates.lat.toFixed(4)}, {log.coordinates.lng.toFixed(4)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-gradient-to-b from-gray-800 to-gray-900 h-64 rounded-lg border border-gray-700 relative overflow-hidden">
+          {/* Simulated map grid */}
+          <div className="absolute inset-0 grid grid-cols-10 grid-rows-6">
+            {Array.from({ length: 60 }).map((_, i) => (
+              <div key={i} className="border border-gray-800/20"></div>
+            ))}
+          </div>
+          
+          {/* Live drone position indicator */}
+          <div 
+            className="absolute w-4 h-4 bg-blue-500 rounded-full animate-ping"
+            style={{ 
+              left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
+              top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%` 
+            }}
+          ></div>
+          <div 
+            className="absolute w-3 h-3 bg-blue-400 rounded-full"
+            style={{ 
+              left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
+              top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%`,
+              transform: 'translate(-50%, -50%)' 
+            }}
+          ></div>
+          
+          {/* Live coordinates display */}
+          <div className="absolute bottom-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
+            {formatCoordinates(telemetry.coordinates)}
+          </div>
+          
+          {/* Altitude indicator */}
+          <div className="absolute top-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
+            ALT: {Math.round(telemetry.altitude)}m
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export default DetailedTelemetry;
+export default TelemetryDashboard;

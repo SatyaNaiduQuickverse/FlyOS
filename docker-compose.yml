@@ -92,7 +92,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Drone Connection Service - FIXED: Only depends on Redis
+  # Drone Connection Service - FIXED: Added Supabase service token
   drone-connection-service:
     build:
       context: ./services/drone-connection-service
@@ -107,6 +107,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - CORS_ORIGIN=*
+      # FIXED: Added service token for TimescaleDB authentication
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
     ports:
       - "4005:4005"
     networks:
