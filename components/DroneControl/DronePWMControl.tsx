@@ -1,4 +1,4 @@
-// components/DroneControl/DronePWMControl.tsx - WITH LIVE DATA INTEGRATION
+// components/DroneControl/DronePWMControl.tsx - CONNECTED TO API
 import React, { useState, useRef, ReactElement, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { AlertCircle, Wifi, WifiOff } from 'lucide-react';
@@ -164,6 +164,47 @@ const DronePWMControl: React.FC = () => {
     }
   };
 
+  // Send PWM/manual control commands
+  const sendManualCommand = async (key: string, pressed: boolean) => {
+    if (!liveTelemetry?.connected) return;
+    
+    const keyCommands: Record<string, string> = {
+      'w': 'throttle',
+      's': 'throttle', 
+      'a': 'yaw',
+      'd': 'yaw',
+      'p': 'pitch',
+      ';': 'pitch',
+      'l': 'roll',
+      "'": 'roll'
+    };
+
+    const command = keyCommands[key.toLowerCase()];
+    if (!command) return;
+
+    // Calculate PWM value based on key and direction
+    let pwmValue = 1500; // Center
+    
+    if (pressed) {
+      switch (key.toLowerCase()) {
+        case 'w': pwmValue = 1600; break; // Throttle up
+        case 's': pwmValue = 1400; break; // Throttle down
+        case 'a': pwmValue = 1400; break; // Yaw left
+        case 'd': pwmValue = 1600; break; // Yaw right
+        case 'p': pwmValue = 1400; break; // Pitch forward
+        case ';': pwmValue = 1600; break; // Pitch backward
+        case 'l': pwmValue = 1400; break; // Roll left
+        case "'": pwmValue = 1600; break; // Roll right
+      }
+    }
+
+    try {
+      await sendCommand(command, { value: pwmValue, key, pressed });
+    } catch (error) {
+      console.error(`Manual command failed:`, error);
+    }
+  };
+
   const handleFlightAction = async (action: FlightAction): Promise<void> => {
     try {
       setActionInProgress(action.endpoint);
@@ -188,7 +229,7 @@ const DronePWMControl: React.FC = () => {
     }
   };
 
-  // Key events for PWM (keep manual control untouched)
+  // Key events for PWM (connected to real commands)
   const handleKeyDown = (event: React.KeyboardEvent): void => {
     if (pendingFlightAction) return;
     if (!autoPWMUpdate) return;
@@ -198,6 +239,9 @@ const DronePWMControl: React.FC = () => {
       event.preventDefault();
       pressedKeysRef.current.add(key);
       setPressedKeys(new Set(pressedKeysRef.current));
+      
+      // Send manual command immediately
+      sendManualCommand(key, true);
       
       const mapping = keyMappings[key];
       setPendingPWM(prev => {
@@ -218,6 +262,9 @@ const DronePWMControl: React.FC = () => {
       event.preventDefault();
       pressedKeysRef.current.delete(key);
       setPressedKeys(new Set(pressedKeysRef.current));
+      
+      // Send release command
+      sendManualCommand(key, false);
     }
   };
 
@@ -398,6 +445,19 @@ const DronePWMControl: React.FC = () => {
                 />
               </button>
             </div>
+
+            {/* Instructions */}
+            {autoPWMUpdate && (
+              <div className="bg-slate-800/50 p-4 rounded-lg border border-gray-800">
+                <h3 className="text-sm font-medium text-blue-300 mb-2">CONTROLS ACTIVE</h3>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div>W/S: Throttle Up/Down</div>
+                  <div>A/D: Yaw Left/Right</div>
+                  <div>P/;: Pitch Forward/Back</div>
+                  <div>L/': Roll Left/Right</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

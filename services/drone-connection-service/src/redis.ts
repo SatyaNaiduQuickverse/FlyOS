@@ -6,21 +6,26 @@ let redisClient: Redis;
 
 export const initRedis = async () => {
   try {
+    // Prevent duplicate connections
+    if (redisClient && redisClient.status === 'ready') {
+      logger.info('Redis already connected');
+      return;
+    }
+
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     
     redisClient = new Redis(redisUrl, {
       retryStrategy: (times) => Math.min(times * 50, 2000),
       maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      enableOfflineQueue: false,
+      lazyConnect: false,
+      enableOfflineQueue: true,
       reconnectOnError: (err) => {
         const targetError = 'READONLY';
         return err.message.includes(targetError);
       }
     });
     
-    // Connect and test
-    await redisClient.connect();
+    // Wait for connection without explicit connect call
     await redisClient.ping();
     
     logger.info('✅ Redis connected for drone connection service');
@@ -87,6 +92,9 @@ export const updateDroneStatus = async (droneId: string, status: string) => {
     logger.error(`❌ Status update failed for ${droneId}:`, error);
   }
 };
+
+// Export redisClient for use in other modules
+export { redisClient };
 
 // Graceful shutdown
 export const closeRedis = async () => {

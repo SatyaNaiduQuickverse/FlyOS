@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/commandHandler.ts - NEW FILE
+// services/drone-connection-service/src/commandHandler.ts - FIXED TYPESCRIPT ERRORS
 import { Server } from 'socket.io';
 import { redisClient } from './redis';
 import { logger } from './utils/logger';
@@ -10,16 +10,14 @@ export const setupCommandHandler = (io: Server) => {
   const subscriber = redisClient.duplicate();
   
   // Subscribe to all drone command channels
-  subscriber.psubscribe('drone:*:commands', (err) => {
-    if (err) {
-      logger.error('❌ Failed to subscribe to command channels:', err);
-    } else {
-      logger.info('📡 Subscribed to drone command channels: drone:*:commands');
-    }
+  subscriber.psubscribe('drone:*:commands');
+  
+  subscriber.on('psubscribe', (pattern: string, count: number) => {
+    logger.info(`📡 Subscribed to pattern: ${pattern} (total subscriptions: ${count})`);
   });
 
   // Handle incoming commands from Redis
-  subscriber.on('pmessage', async (pattern, channel, message) => {
+  subscriber.on('pmessage', async (pattern: string, channel: string, message: string) => {
     try {
       // Extract droneId from channel: drone:drone-001:commands
       const droneId = channel.split(':')[1];
@@ -80,7 +78,7 @@ export const setupCommandHandler = (io: Server) => {
   });
 
   // Handle Redis connection errors
-  subscriber.on('error', (err) => {
+  subscriber.on('error', (err: Error) => {
     logger.error('❌ Redis subscriber error:', err);
   });
 
