@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - WITH PLANNING TAB
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - COMPLETE WITH ALL TOKEN FIXES
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -29,7 +29,7 @@ export default function DroneControlPage() {
   const router = useRouter();
   const params = useParams();
   const { droneId } = params;
-  const { token } = useAuth();
+  const { token } = useAuth(); // GET TOKEN FROM AUTH HOOK
   
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -332,7 +332,7 @@ export default function DroneControlPage() {
         {activeTab === 'dashboard' && drone && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1">
-              <DroneInfoPanel drone={drone} />
+              <DroneInfoPanel drone={drone} token={token} />
             </div>
             <div className="lg:col-span-2">
               <TelemetryDashboard drone={drone} />
@@ -340,7 +340,7 @@ export default function DroneControlPage() {
           </div>
         )}
         
-        {/* PLANNING TAB - NEW */}
+        {/* PLANNING TAB */}
         {activeTab === 'planning' && (
           <div className="bg-black text-white min-h-[600px]">
             <MissionPlanner />
@@ -350,23 +350,23 @@ export default function DroneControlPage() {
         {/* UNIFIED CONTROL CENTER TAB */}
         {activeTab === 'control' && drone && (
           <div className="space-y-6">
-            {/* Camera Feed - No wrapper box */}
+            {/* Camera Feed */}
             <CameraFeed drone={drone} isControlEnabled={isConnected} />
 
-            {/* Control Grid - 2x2 Layout - No wrapper boxes */}
+            {/* Control Grid - 2x2 Layout */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Map - No wrapper box */}
+              {/* Map */}
               <div className="h-[400px] rounded-lg overflow-hidden">
                 <DroneMap className="w-full h-full" />
               </div>
 
-              {/* Payload - No wrapper box */}
+              {/* Payload */}
               <DronePayload />
 
-              {/* PWM Control - No wrapper box */}
-              <DronePWMControl />
+              {/* PWM Control - FIXED: Pass token */}
+              <DronePWMControl token={token} />
 
-              {/* Waypoint - No wrapper box */}
+              {/* Waypoint */}
               <div className="flex justify-center">
                 <WaypointDropbox />
               </div>
@@ -376,7 +376,7 @@ export default function DroneControlPage() {
         
         {/* TELEMETRY TAB */}
         {activeTab === 'telemetry' && (
-          <DetailedTelemetry droneId={droneId as string} />
+          <DetailedTelemetry droneId={droneId as string} token={token} />
         )}
         
         {/* PARAMS TAB */}
@@ -399,3 +399,4 @@ export default function DroneControlPage() {
     </div>
   );
 }
+            

@@ -1,7 +1,7 @@
-// components/DroneControl/TelemetryDashboard.tsx - WITH LIVE DATA INTEGRATION
+// components/DroneControl/DetailedTelemetry.tsx - COMPLETE WITH TOKEN SUPPORT
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { Activity, Compass, Globe, Clock, Wind, Thermometer, AlertCircle } from 'lucide-react';
+import { Activity, Compass, Globe, Clock, Wind, Thermometer, AlertCircle, LineChart, TrendingUp, Battery, Plane } from 'lucide-react';
 
 interface Coordinates {
   lat: number;
@@ -30,26 +30,19 @@ interface LiveTelemetryData {
   timestamp: string;
 }
 
-interface TelemetryDashboardProps {
-  drone: {
-    id?: string;
-    altitude?: number;
-    speed?: number;
-    heading?: number;
-    coordinates?: Coordinates;
-  };
+interface DetailedTelemetryProps {
+  droneId: string;
+  token?: string; // ADD TOKEN PROP
 }
 
-const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
-  // Get droneId from URL params
-  const params = useParams();
-  const droneId = params?.droneId as string;
-
-  // Live telemetry state
+const DetailedTelemetry: React.FC<DetailedTelemetryProps> = ({ droneId, token }) => {
   const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetryData | null>(null);
+  const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
+  const [activeTab, setActiveTab] = useState<'live' | 'history' | 'analysis'>('live');
+  const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h'>('1h');
 
   // Calculated values from telemetry
   const [telemetry, setTelemetry] = useState({
@@ -63,21 +56,27 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
     signalLatency: 45,
   });
 
-  // Fetch live telemetry data
   const fetchTelemetry = async () => {
     if (!droneId) {
-      setError('No drone ID found in URL');
+      setError('No drone ID provided');
       setIsLoading(false);
       return;
     }
 
     try {
       setError(null);
+      const headers: HeadersInit = {
+        'Cache-Control': 'no-cache'
+      };
+
+      // ADD TOKEN IF AVAILABLE
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`/api/drone-telemetry/${droneId}`, {
         cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
+        headers
       });
       
       if (!response.ok) {
@@ -107,9 +106,9 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
           heading: heading,
           coordinates: { lat: data.latitude, lng: data.longitude },
           lastUpdated: new Date(),
-          signalLatency: Math.random() * 50 + 25, // Simulated latency
-          temperature: 20 + Math.random() * 10, // Simulated temperature
-          windSpeed: 5 + Math.random() * 15, // Simulated wind
+          signalLatency: Math.random() * 50 + 25,
+          temperature: 20 + Math.random() * 10,
+          windSpeed: 5 + Math.random() * 15,
         }));
         
         setIsLoading(false);
@@ -124,6 +123,47 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
     }
   };
 
+  const fetchHistoricalData = async () => {
+    if (!droneId || !token) return;
+
+    try {
+      const endTime = new Date();
+      const startTime = new Date();
+      
+      // Set time range
+      switch (timeRange) {
+        case '1h':
+          startTime.setHours(endTime.getHours() - 1);
+          break;
+        case '6h':
+          startTime.setHours(endTime.getHours() - 6);
+          break;
+        case '24h':
+          startTime.setDate(endTime.getDate() - 1);
+          break;
+      }
+
+      const queryParams = new URLSearchParams({
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        interval: timeRange === '24h' ? 'hourly' : '15min'
+      });
+
+      const response = await fetch(`/api/drones/${droneId}/telemetry?${queryParams}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHistoricalData(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching historical data:', error);
+    }
+  };
+
   // Initial fetch and polling
   useEffect(() => {
     if (droneId) {
@@ -131,7 +171,13 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
       const interval = setInterval(fetchTelemetry, 2000);
       return () => clearInterval(interval);
     }
-  }, [droneId]);
+  }, [droneId, token]);
+
+  useEffect(() => {
+    if (activeTab === 'history' && token) {
+      fetchHistoricalData();
+    }
+  }, [activeTab, timeRange, droneId, token]);
 
   const formatCoordinates = (coords: Coordinates) => {
     return `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
@@ -167,7 +213,7 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
         <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
           <div className="flex items-center justify-center p-8">
             <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mr-4"></div>
-            <span className="text-gray-400">Loading telemetry dashboard...</span>
+            <span className="text-gray-400">Loading detailed telemetry...</span>
           </div>
         </div>
       </div>
@@ -182,7 +228,7 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
           <div className="bg-red-500/10 border border-red-500/30 text-red-300 p-4 rounded-lg flex items-center gap-3">
             <AlertCircle className="h-5 w-5" />
             <div>
-              <div className="font-medium">Telemetry Error</div>
+              <div className="font-medium">Detailed Telemetry Error</div>
               <div className="text-sm">{error}</div>
             </div>
           </div>
@@ -193,12 +239,12 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
 
   return (
     <div className="space-y-6">
-      {/* Main telemetry panel */}
+      {/* Header with tabs */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            TELEMETRY DASHBOARD
+            <LineChart className="h-5 w-5" />
+            DETAILED TELEMETRY ANALYSIS
           </h3>
           
           <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -212,196 +258,410 @@ const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({ drone }) => {
             </div>
           </div>
         </div>
-        
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">ALTITUDE</div>
-            <div className="text-2xl font-light text-white">{Math.round(telemetry.altitude)}</div>
-            <div className="text-xs text-blue-400">METERS</div>
-            {liveTelemetry && (
-              <div className="text-xs text-gray-500 mt-1">
-                MSL: {Math.round(liveTelemetry.altitude_msl)}m
-              </div>
-            )}
-          </div>
-          
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">SPEED</div>
-            <div className="text-2xl font-light text-white">{Math.round(telemetry.speed)}</div>
-            <div className="text-xs text-blue-400">KM/H</div>
-            {liveTelemetry && (
-              <div className="text-xs text-gray-500 mt-1">
-                V↑: {(liveTelemetry.velocity_z * 3.6).toFixed(1)} km/h
-              </div>
-            )}
-          </div>
-          
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">HEADING</div>
-            <div className="text-2xl font-light text-white">
-              {Math.round(telemetry.heading)}° {getHeadingDirection(telemetry.heading)}
-            </div>
-            <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
-              <Compass className="h-3 w-3" />
-              <span>COMPASS</span>
-            </div>
-          </div>
-          
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">BATTERY</div>
-            <div className={`text-2xl font-light ${getBatteryColor(liveTelemetry?.percentage || 0)}`}>
-              {liveTelemetry?.percentage || 0}%
-            </div>
-            <div className="text-xs text-blue-400">
-              {liveTelemetry?.voltage?.toFixed(1)}V
-            </div>
-          </div>
-        </div>
 
-        {/* Additional telemetry row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">GPS</div>
-            <div className="text-lg font-light text-white">{liveTelemetry?.satellites || 0}</div>
-            <div className="text-xs text-blue-400">{liveTelemetry?.gps_fix || 'UNKNOWN'}</div>
-          </div>
-          
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">FLIGHT MODE</div>
-            <div className="text-lg font-light text-white">{liveTelemetry?.flight_mode || 'UNKNOWN'}</div>
-            <div className={`text-xs ${liveTelemetry?.armed ? 'text-red-400' : 'text-green-400'}`}>
-              {liveTelemetry?.armed ? 'ARMED' : 'DISARMED'}
-            </div>
-          </div>
-          
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">ROLL/PITCH</div>
-            <div className="text-lg font-light text-white">
-              {((liveTelemetry?.roll || 0) * 180 / Math.PI).toFixed(1)}°
-            </div>
-            <div className="text-xs text-blue-400">
-              P: {((liveTelemetry?.pitch || 0) * 180 / Math.PI).toFixed(1)}°
-            </div>
-          </div>
-          
-          <div className="bg-gray-800/80 p-4 rounded-lg text-center">
-            <div className="text-xs text-gray-400 mb-1">COORDINATES</div>
-            <div className="text-sm font-light text-white">{formatCoordinates(telemetry.coordinates)}</div>
-            <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
-              <Globe className="h-3 w-3" />
-              <span>GPS</span>
-            </div>
-          </div>
+        {/* Tab Navigation */}
+        <div className="flex space-x-1 bg-gray-800/50 p-1 rounded-lg">
+          <button
+            onClick={() => setActiveTab('live')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'live'
+                ? 'bg-blue-500/20 text-blue-300'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Live Data
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'history'
+                ? 'bg-blue-500/20 text-blue-300'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Historical
+          </button>
+          <button
+            onClick={() => setActiveTab('analysis')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'analysis'
+                ? 'bg-blue-500/20 text-blue-300'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Analysis
+          </button>
         </div>
       </div>
-      
-      {/* Environmental data */}
-      <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
-        <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2 mb-6">
-          <Wind className="h-5 w-5" />
-          ENVIRONMENTAL DATA
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gray-800/80 p-4 rounded-lg">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="text-xs text-gray-400 mb-1">TEMPERATURE</div>
-                <div className="flex items-center">
-                  <Thermometer className="h-5 w-5 mr-2 text-blue-400" />
-                  <span className="text-xl font-light text-white">{Math.round(telemetry.temperature)}°C</span>
+
+      {/* Live Data Tab */}
+      {activeTab === 'live' && (
+        <>
+          {/* Main telemetry grid */}
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h4 className="text-md font-light tracking-wider text-blue-300 mb-4">REAL-TIME METRICS</h4>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">ALTITUDE</div>
+                <div className="text-2xl font-light text-white">{Math.round(telemetry.altitude)}</div>
+                <div className="text-xs text-blue-400">METERS</div>
+                {liveTelemetry && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    MSL: {Math.round(liveTelemetry.altitude_msl)}m
+                  </div>
+                )}
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">SPEED</div>
+                <div className="text-2xl font-light text-white">{Math.round(telemetry.speed)}</div>
+                <div className="text-xs text-blue-400">KM/H</div>
+                {liveTelemetry && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    V↑: {(liveTelemetry.velocity_z * 3.6).toFixed(1)} km/h
+                  </div>
+                )}
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">HEADING</div>
+                <div className="text-2xl font-light text-white">
+                  {Math.round(telemetry.heading)}° {getHeadingDirection(telemetry.heading)}
+                </div>
+                <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
+                  <Compass className="h-3 w-3" />
+                  <span>COMPASS</span>
                 </div>
               </div>
-              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                <span className="text-white font-medium">{Math.round(telemetry.temperature)}°</span>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">BATTERY</div>
+                <div className={`text-2xl font-light ${getBatteryColor(liveTelemetry?.percentage || 0)}`}>
+                  {liveTelemetry?.percentage || 0}%
+                </div>
+                <div className="text-xs text-blue-400">
+                  {liveTelemetry?.voltage?.toFixed(1)}V
+                </div>
+              </div>
+            </div>
+
+            {/* Additional telemetry row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">GPS</div>
+                <div className="text-lg font-light text-white">{liveTelemetry?.satellites || 0}</div>
+                <div className="text-xs text-blue-400">{liveTelemetry?.gps_fix || 'UNKNOWN'}</div>
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">FLIGHT MODE</div>
+                <div className="text-lg font-light text-white">{liveTelemetry?.flight_mode || 'UNKNOWN'}</div>
+                <div className={`text-xs ${liveTelemetry?.armed ? 'text-red-400' : 'text-green-400'}`}>
+                  {liveTelemetry?.armed ? 'ARMED' : 'DISARMED'}
+                </div>
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">ROLL/PITCH</div>
+                <div className="text-lg font-light text-white">
+                  {((liveTelemetry?.roll || 0) * 180 / Math.PI).toFixed(1)}°
+                </div>
+                <div className="text-xs text-blue-400">
+                  P: {((liveTelemetry?.pitch || 0) * 180 / Math.PI).toFixed(1)}°
+                </div>
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg text-center">
+                <div className="text-xs text-gray-400 mb-1">COORDINATES</div>
+                <div className="text-sm font-light text-white">{formatCoordinates(telemetry.coordinates)}</div>
+                <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
+                  <Globe className="h-3 w-3" />
+                  <span>GPS</span>
+                </div>
               </div>
             </div>
           </div>
           
-          <div className="bg-gray-800/80 p-4 rounded-lg">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="text-xs text-gray-400 mb-1">WIND SPEED</div>
-                <div className="flex items-center">
-                  <Wind className="h-5 w-5 mr-2 text-blue-400" />
-                  <span className="text-xl font-light text-white">{Math.round(telemetry.windSpeed)} km/h</span>
+          {/* Environmental data */}
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2 mb-6">
+              <Wind className="h-5 w-5" />
+              ENVIRONMENTAL DATA
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-800/80 p-4 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="text-xs text-gray-400 mb-1">TEMPERATURE</div>
+                    <div className="flex items-center">
+                      <Thermometer className="h-5 w-5 mr-2 text-blue-400" />
+                      <span className="text-xl font-light text-white">{Math.round(telemetry.temperature)}°C</span>
+                    </div>
+                  </div>
+                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                    <span className="text-white font-medium">{Math.round(telemetry.temperature)}°</span>
+                  </div>
                 </div>
               </div>
-              <div className="text-xs px-2 py-1 rounded-lg bg-gray-700 text-gray-300 border border-gray-600">
-                {telemetry.windSpeed < 10 ? 'Low' : telemetry.windSpeed < 20 ? 'Moderate' : 'High'}
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="text-xs text-gray-400 mb-1">WIND SPEED</div>
+                    <div className="flex items-center">
+                      <Wind className="h-5 w-5 mr-2 text-blue-400" />
+                      <span className="text-xl font-light text-white">{Math.round(telemetry.windSpeed)} km/h</span>
+                    </div>
+                  </div>
+                  <div className="text-xs px-2 py-1 rounded-lg bg-gray-700 text-gray-300 border border-gray-600">
+                    {telemetry.windSpeed < 10 ? 'Low' : telemetry.windSpeed < 20 ? 'Moderate' : 'High'}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="text-xs text-gray-400 mb-1">SIGNAL LATENCY</div>
+                    <div className="flex items-center">
+                      <Clock className={`h-5 w-5 mr-2 ${getLatencyColor(telemetry.signalLatency)}`} />
+                      <span className={`text-xl font-light ${getLatencyColor(telemetry.signalLatency)}`}>
+                        {Math.round(telemetry.signalLatency)} ms
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-xs px-2 py-1 rounded-lg bg-gray-700 text-gray-300 border border-gray-600">
+                    {telemetry.signalLatency < 50 ? 'Excellent' : telemetry.signalLatency < 100 ? 'Good' : 'Poor'}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
           
-          <div className="bg-gray-800/80 p-4 rounded-lg">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="text-xs text-gray-400 mb-1">SIGNAL LATENCY</div>
-                <div className="flex items-center">
-                  <Clock className={`h-5 w-5 mr-2 ${getLatencyColor(telemetry.signalLatency)}`} />
-                  <span className={`text-xl font-light ${getLatencyColor(telemetry.signalLatency)}`}>
-                    {Math.round(telemetry.signalLatency)} ms
-                  </span>
+          {/* Live position map */}
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                LIVE POSITION
+              </h3>
+              <div className="text-sm text-gray-400">
+                Updated: {telemetry.lastUpdated.toLocaleTimeString()}
+              </div>
+            </div>
+            
+            <div className="bg-gradient-to-b from-gray-800 to-gray-900 h-64 rounded-lg border border-gray-700 relative overflow-hidden">
+              {/* Simulated map grid */}
+              <div className="absolute inset-0 grid grid-cols-10 grid-rows-6">
+                {Array.from({ length: 60 }).map((_, i) => (
+                  <div key={i} className="border border-gray-800/20"></div>
+                ))}
+              </div>
+              
+              {/* Live drone position indicator */}
+              <div 
+                className="absolute w-4 h-4 bg-blue-500 rounded-full animate-ping"
+                style={{ 
+                  left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
+                  top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%` 
+                }}
+              ></div>
+              <div 
+                className="absolute w-3 h-3 bg-blue-400 rounded-full"
+                style={{ 
+                  left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
+                  top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%`,
+                  transform: 'translate(-50%, -50%)' 
+                }}
+              ></div>
+              
+              {/* Live coordinates display */}
+              <div className="absolute bottom-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
+                {formatCoordinates(telemetry.coordinates)}
+              </div>
+              
+              {/* Altitude indicator */}
+              <div className="absolute top-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
+                ALT: {Math.round(telemetry.altitude)}m
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Historical Data Tab */}
+      {activeTab === 'history' && (
+        <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+          <div className="flex justify-between items-center mb-6">
+            <h4 className="text-md font-light tracking-wider text-blue-300">HISTORICAL TELEMETRY</h4>
+            
+            {/* Time range selector */}
+            <div className="flex space-x-2">
+              {(['1h', '6h', '24h'] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    timeRange === range
+                      ? 'bg-blue-500/20 text-blue-300'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {range.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {historicalData.length > 0 ? (
+            <div className="space-y-4">
+              {/* Altitude chart placeholder */}
+              <div className="bg-gray-800/50 p-4 rounded-lg">
+                <h5 className="text-sm text-gray-300 mb-3">Altitude Over Time</h5>
+                <div className="h-32 bg-gradient-to-r from-blue-900/20 to-blue-800/20 rounded flex items-end justify-between px-2">
+                  {Array.from({ length: 20 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-2 bg-blue-500 rounded-t"
+                      style={{ height: `${20 + Math.random() * 80}%` }}
+                    ></div>
+                  ))}
                 </div>
               </div>
-              <div className="text-xs px-2 py-1 rounded-lg bg-gray-700 text-gray-300 border border-gray-600">
-                {telemetry.signalLatency < 50 ? 'Excellent' : telemetry.signalLatency < 100 ? 'Good' : 'Poor'}
+
+              {/* Battery chart placeholder */}
+              <div className="bg-gray-800/50 p-4 rounded-lg">
+                <h5 className="text-sm text-gray-300 mb-3">Battery Level Over Time</h5>
+                <div className="h-32 bg-gradient-to-r from-green-900/20 to-red-900/20 rounded flex items-end justify-between px-2">
+                  {Array.from({ length: 20 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-2 bg-gradient-to-t from-red-500 to-green-500 rounded-t"
+                      style={{ height: `${100 - (i * 2)}%` }}
+                    ></div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No historical data available for selected time range</p>
+              <p className="text-sm mt-2">Historical data requires authentication</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Analysis Tab */}
+      {activeTab === 'analysis' && (
+        <div className="space-y-6">
+          {/* Performance metrics */}
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h4 className="text-md font-light tracking-wider text-blue-300 mb-4">PERFORMANCE ANALYSIS</h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-800/80 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">FLIGHT EFFICIENCY</span>
+                  <Battery className="h-4 w-4 text-green-400" />
+                </div>
+                <div className="text-2xl font-light text-white mb-1">87%</div>
+                <div className="text-xs text-green-400">+3% from last flight</div>
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">STABILITY INDEX</span>
+                  <Plane className="h-4 w-4 text-blue-400" />
+                </div>
+                <div className="text-2xl font-light text-white mb-1">9.2/10</div>
+                <div className="text-xs text-blue-400">Excellent stability</div>
+              </div>
+              
+              <div className="bg-gray-800/80 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">SIGNAL QUALITY</span>
+                  <Activity className="h-4 w-4 text-yellow-400" />
+                </div>
+                <div className="text-2xl font-light text-white mb-1">Good</div>
+                <div className="text-xs text-yellow-400">Avg latency: {Math.round(telemetry.signalLatency)}ms</div>
+              </div>
+            </div>
+          </div>
+
+          {/* System health */}
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h4 className="text-md font-light tracking-wider text-blue-300 mb-4">SYSTEM HEALTH</h4>
+            
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-300">GPS System</span>
+                <span className="text-green-400">Optimal</span>
+              </div>
+              <div className="h-2 bg-gray-700 rounded-full">
+                <div className="h-2 bg-green-500 rounded-full" style={{ width: '95%' }}></div>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-gray-300">Communication</span>
+                <span className="text-yellow-400">Good</span>
+              </div>
+              <div className="h-2 bg-gray-700 rounded-full">
+                <div className="h-2 bg-yellow-500 rounded-full" style={{ width: '78%' }}></div>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-gray-300">Battery Health</span>
+                <span className="text-green-400">Excellent</span>
+              </div>
+              <div className="h-2 bg-gray-700 rounded-full">
+                <div className="h-2 bg-green-500 rounded-full" style={{ width: '92%' }}></div>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-gray-300">Motor Performance</span>
+                <span className="text-green-400">Optimal</span>
+              </div>
+              <div className="h-2 bg-gray-700 rounded-full">
+                <div className="h-2 bg-green-500 rounded-full" style={{ width: '88%' }}></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Recommendations */}
+          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
+            <h4 className="text-md font-light tracking-wider text-blue-300 mb-4">RECOMMENDATIONS</h4>
+            
+            <div className="space-y-3">
+              <div className="bg-blue-500/10 border border-blue-500/30 p-3 rounded-lg">
+                <div className="text-blue-300 text-sm font-medium">Signal Optimization</div>
+                <div className="text-gray-300 text-xs mt-1">
+                  Consider moving to higher altitude to improve communication quality
+                </div>
+              </div>
+              
+              <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg">
+                <div className="text-green-300 text-sm font-medium">Battery Status</div>
+                <div className="text-gray-300 text-xs mt-1">
+                  Battery performance is excellent. Current charge sufficient for extended operations.
+                </div>
+              </div>
+              
+              <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 rounded-lg">
+                <div className="text-yellow-300 text-sm font-medium">Weather Advisory</div>
+                <div className="text-gray-300 text-xs mt-1">
+                  Monitor wind conditions. Current levels are within safe operational limits.
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      
-      {/* Live position map */}
-      <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            LIVE POSITION
-          </h3>
-          <div className="text-sm text-gray-400">
-            Updated: {telemetry.lastUpdated.toLocaleTimeString()}
-          </div>
-        </div>
-        
-        <div className="bg-gradient-to-b from-gray-800 to-gray-900 h-64 rounded-lg border border-gray-700 relative overflow-hidden">
-          {/* Simulated map grid */}
-          <div className="absolute inset-0 grid grid-cols-10 grid-rows-6">
-            {Array.from({ length: 60 }).map((_, i) => (
-              <div key={i} className="border border-gray-800/20"></div>
-            ))}
-          </div>
-          
-          {/* Live drone position indicator */}
-          <div 
-            className="absolute w-4 h-4 bg-blue-500 rounded-full animate-ping"
-            style={{ 
-              left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
-              top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%` 
-            }}
-          ></div>
-          <div 
-            className="absolute w-3 h-3 bg-blue-400 rounded-full"
-            style={{ 
-              left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
-              top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%`,
-              transform: 'translate(-50%, -50%)' 
-            }}
-          ></div>
-          
-          {/* Live coordinates display */}
-          <div className="absolute bottom-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
-            {formatCoordinates(telemetry.coordinates)}
-          </div>
-          
-          {/* Altitude indicator */}
-          <div className="absolute top-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
-            ALT: {Math.round(telemetry.altitude)}m
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 };
 
-export default TelemetryDashboard;
+export default DetailedTelemetry;

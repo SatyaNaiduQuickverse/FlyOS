@@ -1,4 +1,4 @@
-// components/DroneControl/DroneInfoPanel.tsx - WITH LIVE DATA INTEGRATION
+// components/DroneControl/DroneInfoPanel.tsx - COMPLETE WITH TOKEN SUPPORT
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { Plane, Shield, MapPin, Wifi, WifiOff, AlertCircle } from 'lucide-react';
@@ -27,7 +27,7 @@ interface LiveTelemetryData {
 
 interface DroneInfoPanelProps {
   drone: {
-    id?: string; // Make optional since we'll get it from URL
+    id?: string;
     model: string;
     status: string;
     location: string;
@@ -37,20 +37,18 @@ interface DroneInfoPanelProps {
     altitude?: number;
     speed?: number;
   };
+  token?: string; // ADD TOKEN PROP
 }
 
-const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
-  // Get droneId from URL params (from [droneId] route)
+const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone, token }) => {
   const params = useParams();
   const droneId = params?.droneId as string;
   
-  // Live telemetry state
   const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
-  // Fetch live telemetry data
   const fetchTelemetry = async () => {
     if (!droneId) {
       setError('No drone ID found in URL');
@@ -60,11 +58,18 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
 
     try {
       setError(null);
+      const headers: HeadersInit = {
+        'Cache-Control': 'no-cache'
+      };
+
+      // ADD TOKEN IF AVAILABLE
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`/api/drone-telemetry/${droneId}`, {
         cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
+        headers
       });
       
       if (!response.ok) {
@@ -88,17 +93,13 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
     }
   };
 
-  // Initial fetch and set up polling
   useEffect(() => {
     if (droneId) {
       fetchTelemetry();
-      
-      // Poll for updates every 2 seconds
       const interval = setInterval(fetchTelemetry, 2000);
-      
       return () => clearInterval(interval);
     }
-  }, [droneId]); // Re-run when droneId changes
+  }, [droneId, token]); // ADD TOKEN DEPENDENCY
 
   const getStatusColor = (status: string) => {
     if (liveTelemetry?.connected === false) {
@@ -120,7 +121,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
     return 'text-red-400';
   };
 
-  // Use live data when available, fallback to props
   const displayData = {
     batteryLevel: liveTelemetry?.percentage ?? drone.batteryLevel,
     coordinates: liveTelemetry ? 
@@ -135,7 +135,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
     gpsStatus: liveTelemetry?.gps_fix ?? 'UNKNOWN'
   };
 
-  // Simulate drone details that would come from your database
   const droneDetails = {
     serialNumber: `SN-${droneId?.split('-')[1]}-${Math.floor(Math.random() * 10000)}`,
     manufacturer: 'FlyOS Technologies',
@@ -150,7 +149,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
 
   return (
     <div className="space-y-6">
-      {/* Basic drone info card */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
@@ -158,7 +156,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
             DRONE INFORMATION
           </h3>
           <div className="flex items-center gap-2">
-            {/* Connection indicator */}
             {displayData.connected ? (
               <Wifi className="h-4 w-4 text-green-500" />
             ) : (
@@ -170,7 +167,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
           </div>
         </div>
         
-        {/* Loading state */}
         {isLoading && (
           <div className="flex items-center justify-center p-4">
             <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full mr-3"></div>
@@ -178,7 +174,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
           </div>
         )}
         
-        {/* Error state */}
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 text-red-300 p-3 rounded-lg mb-4 flex items-center gap-2">
             <AlertCircle className="h-4 w-4" />
@@ -186,7 +181,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
           </div>
         )}
         
-        {/* Live data display */}
         {!isLoading && !error && (
           <div className="space-y-2">
             <div className="flex justify-between items-center p-3 bg-gray-800/80 rounded-lg">
@@ -237,7 +231,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
           </div>
         )}
         
-        {/* Last update timestamp */}
         {lastUpdateTime && (
           <div className="mt-4 text-xs text-gray-500 text-center">
             Last updated: {lastUpdateTime.toLocaleTimeString()}
@@ -245,7 +238,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
         )}
       </div>
       
-      {/* Technical specifications */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex items-center gap-2 mb-4">
           <Shield className="h-5 w-5 text-blue-400" />
@@ -257,17 +249,14 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
             <div className="text-xs text-gray-400 mb-1">Serial Number</div>
             <div className="text-sm font-light text-white">{droneDetails.serialNumber}</div>
           </div>
-          
           <div className="bg-gray-800/80 p-3 rounded-lg">
             <div className="text-xs text-gray-400 mb-1">Manufacturer</div>
             <div className="text-sm font-light text-white">{droneDetails.manufacturer}</div>
           </div>
-          
           <div className="bg-gray-800/80 p-3 rounded-lg">
             <div className="text-xs text-gray-400 mb-1">Flight Hours</div>
             <div className="text-sm font-light text-white">{droneDetails.flightHours} hours</div>
           </div>
-          
           <div className="bg-gray-800/80 p-3 rounded-lg">
             <div className="text-xs text-gray-400 mb-1">Last Maintenance</div>
             <div className="text-sm font-light text-white">{droneDetails.lastMaintenance}</div>
@@ -275,7 +264,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
         </div>
       </div>
       
-      {/* Operational limits with live data */}
       <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
         <div className="flex items-center gap-2 mb-4">
           <MapPin className="h-5 w-5 text-blue-400" />
@@ -289,12 +277,10 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
               {displayData.altitude ? `${Math.round(displayData.altitude)} meters` : 'N/A'}
             </span>
           </div>
-          
           <div className="flex justify-between items-center text-sm">
             <span className="text-gray-400">Maximum Altitude:</span>
             <span className="text-white">{droneDetails.maxAltitude} meters</span>
           </div>
-          
           <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
             <div 
               className="h-full bg-gradient-to-r from-blue-500 to-blue-300" 
@@ -306,7 +292,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
             <span className="text-gray-400">Maximum Speed:</span>
             <span className="text-white">{droneDetails.maxSpeed} km/h</span>
           </div>
-          
           <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
             <div 
               className="h-full bg-gradient-to-r from-blue-500 to-blue-300" 
@@ -318,7 +303,6 @@ const DroneInfoPanel: React.FC<DroneInfoPanelProps> = ({ drone }) => {
             <span className="text-gray-400">Range Limit:</span>
             <span className="text-white">{droneDetails.rangeLimitKm} km</span>
           </div>
-          
           <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
             <div 
               className="h-full bg-gradient-to-r from-blue-500 to-blue-300" 
