@@ -1,13 +1,28 @@
-// components/DroneControl/DroneMap.tsx - OPTIMIZED VERSION
+// components/DroneControl/DroneMap.tsx - CONNECTED TO LIVE REDIS DATA
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Globe, Maximize2, Eye, MapPin, Layers, X } from 'lucide-react';
 import { waypointStore } from '../../utils/waypointStore';
 import type { Waypoint } from '../../utils/waypointStore';
+import { useParams } from 'next/navigation';
 
 // Define interface for DroneMapProps
 interface DroneMapProps {
   className?: string;
+}
+
+// Live telemetry interface
+interface LiveTelemetryData {
+  latitude: number;
+  longitude: number;
+  altitude_relative: number;
+  altitude_msl: number;
+  armed: boolean;
+  flight_mode: string;
+  connected: boolean;
+  percentage: number;
+  voltage: number;
+  timestamp: string;
 }
 
 // Create a placeholder component for server-side rendering
@@ -30,6 +45,10 @@ enum MapType {
 
 // The actual map component implementation (client-side only)
 const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) => {
+  // Get droneId from URL params
+  const params = useParams();
+  const droneId = params?.droneId as string;
+
   // Import Leaflet dynamically only on client-side
   const [L, setL] = useState<any>(null);
   const [ReactLeaflet, setReactLeaflet] = useState<any>(null);
@@ -37,15 +56,10 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
   const [droneIcon, setDroneIcon] = useState<any>(null);
   const [waypointIcon, setWaypointIcon] = useState<any>(null);
   
-  // Telemetry state - OPTIMIZED with useCallback
-  const [telemetryData, setTelemetryData] = useState({
-    latitude: 18.5278859,
-    longitude: 73.8522314,
-    altitudeMSL: 100,
-    armed: false,
-    flight_mode: 'STABILIZE',
-    connected: true
-  });
+  // LIVE TELEMETRY STATE - Connected to Redis
+  const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetryData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
   
   // Map state
   const [pathHistory, setPathHistory] = useState<[number, number][]>([]);
@@ -54,41 +68,44 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
   const [showMissionPath, setShowMissionPath] = useState(true);
   const [mapCenter, setMapCenter] = useState<[number, number]>([18.5278859, 73.8522314]);
   const [mapZoom, setMapZoom] = useState(18);
-  const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedMapType, setSelectedMapType] = useState<MapType>(MapType.OSM);
   
-  const maxPathPoints = 50; // Reduced from 100 for better performance
+  const maxPathPoints = 50;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // OPTIMIZATION: Throttled update function
-  const throttledUpdateTelemetry = useCallback((newData: any) => {
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
+
+  // FETCH LIVE TELEMETRY DATA FROM REDIS
+  const fetchTelemetry = async () => {
+    if (!droneId) {
+      setTelemetryError('No drone ID found in URL');
+      setIsLoading(false);
+      return;
     }
-    
-    updateTimeoutRef.current = setTimeout(() => {
-      setTelemetryData(prev => {
-        // Only update if data actually changed
-        if (
-          prev.latitude === newData.latitude &&
-          prev.longitude === newData.longitude &&
-          prev.armed === newData.armed &&
-          prev.flight_mode === newData.flight_mode
-        ) {
-          return prev; // No change, don't re-render
+
+    try {
+      setTelemetryError(null);
+      const response = await fetch(`/api/drone-telemetry/${droneId}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache'
         }
-        
-        return {
-          ...prev,
-          ...newData
-        };
       });
       
-      // Update path history only if position changed significantly
-      if (newData.latitude && newData.longitude) {
-        const newPosition: [number, number] = [newData.latitude, newData.longitude];
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.latitude && data.longitude) {
+        setLiveTelemetry(data);
+        
+        // Update map center to drone position
+        const newPosition: [number, number] = [data.latitude, data.longitude];
+        setMapCenter(newPosition);
+        
+        // Update path history if position changed significantly
         setPathHistory(prev => {
           const lastPosition = prev[prev.length - 1];
           if (lastPosition) {
@@ -99,20 +116,62 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           const newHistory = [...prev, newPosition];
           return newHistory.slice(-maxPathPoints);
         });
+        
+        setIsLoading(false);
+      } else {
+        setTelemetryError('No GPS coordinates available');
+        setIsLoading(false);
       }
-    }, 500); // Throttle to 500ms
+    } catch (err) {
+      console.error('Error fetching telemetry:', err);
+      setTelemetryError(err instanceof Error ? err.message : 'Failed to fetch telemetry');
+      setIsLoading(false);
+    }
+  };
+
+  // LIVE DATA POLLING - Connect to Redis stream
+  useEffect(() => {
+    if (droneId) {
+      fetchTelemetry();
+      const interval = setInterval(fetchTelemetry, 2000); // Poll every 2 seconds
+      return () => clearInterval(interval);
+    }
+  }, [droneId]);
+  
+  // OPTIMIZATION: Throttled update function
+  const throttledUpdateTelemetry = useCallback((newData: any) => {
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    updateTimeoutRef.current = setTimeout(() => {
+      if (newData.latitude && newData.longitude) {
+        const newPosition: [number, number] = [newData.latitude, newData.longitude];
+        setMapCenter(newPosition);
+        
+        // Update path history
+        setPathHistory(prev => {
+          const lastPosition = prev[prev.length - 1];
+          if (lastPosition) {
+            const distance = Math.abs(lastPosition[0] - newPosition[0]) + Math.abs(lastPosition[1] - newPosition[1]);
+            if (distance < 0.0001) return prev;
+          }
+          
+          const newHistory = [...prev, newPosition];
+          return newHistory.slice(-maxPathPoints);
+        });
+      }
+    }, 500);
   }, []);
   
   // Load Leaflet libraries
   useEffect(() => {
     const initializeLeaflet = async () => {
       try {
-        // Import required libraries
         const leaflet = await import('leaflet');
         const reactLeafletLib = await import('react-leaflet');
         await import('leaflet/dist/leaflet.css');
         
-        // Create the icons after loading Leaflet
         const defaultIcon = leaflet.icon({
           iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
           iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
@@ -123,10 +182,8 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           shadowSize: [41, 41]
         });
         
-        // Set default icon for all markers
         leaflet.Marker.prototype.options.icon = defaultIcon;
         
-        // Create the custom icons
         const droneIconObj = leaflet.divIcon({
           className: 'drone-icon',
           html: `
@@ -152,7 +209,6 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           iconAnchor: [15, 15]
         });
         
-        // Save all the libraries and icons in state
         setL(leaflet);
         setReactLeaflet(reactLeafletLib);
         setDroneIcon(droneIconObj);
@@ -167,33 +223,13 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
     initializeLeaflet();
   }, []);
   
-  // Memoize the current position to prevent unnecessary re-renders
-  const dronePosition = useMemo<[number, number]>(() =>
-    [telemetryData.latitude, telemetryData.longitude],
-    [telemetryData.latitude, telemetryData.longitude]
-  );
-
-  // OPTIMIZATION: Slow down demo animation
-  useEffect(() => {
-    // Demo animation with much slower updates
-    const interval = setInterval(() => {
-      const lat = 18.5278859 + (Math.random() * 0.005 - 0.0025); // Smaller movements
-      const lng = 73.8522314 + (Math.random() * 0.005 - 0.0025);
-      
-      const newTelemetry = {
-        latitude: lat,
-        longitude: lng,
-        altitudeMSL: 100 + Math.random() * 50,
-        armed: Math.random() > 0.7, // Less frequent changes
-        flight_mode: ['STABILIZE', 'ALT_HOLD', 'LOITER', 'AUTO'][Math.floor(Math.random() * 4)],
-        connected: true
-      };
-      
-      throttledUpdateTelemetry(newTelemetry);
-    }, 2000); // Slower updates - every 2 seconds instead of 3
-
-    return () => clearInterval(interval);
-  }, [throttledUpdateTelemetry]);
+  // Memoize the current position from LIVE DATA
+  const dronePosition = useMemo<[number, number]>(() => {
+    if (liveTelemetry?.latitude && liveTelemetry?.longitude) {
+      return [liveTelemetry.latitude, liveTelemetry.longitude];
+    }
+    return [0, 0];
+  }, [liveTelemetry?.latitude, liveTelemetry?.longitude]);
 
   // Calculate optimal zoom level
   const calculateOptimalZoom = useCallback((coordinates: [number, number][]) => {
@@ -334,7 +370,6 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
 
     useEffect(() => {
       if (center[0] !== 0 && center[1] !== 0) {
-        // Use flyTo for smooth transitions instead of setView
         map.flyTo(center, zoom, { duration: 1 });
       }
     }, [center, zoom, map]);
@@ -370,9 +405,9 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
       className={`relative bg-slate-900/50 text-white rounded-lg border border-gray-800 backdrop-blur-sm shadow-slate-900/50 overflow-hidden ${className} ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'h-[500px]'}`}
     >
       {/* Error alert */}
-      {error && (
+      {(error || telemetryError) && (
         <div className="absolute top-0 left-0 right-0 z-[2000] bg-red-500/20 border border-red-500/30 text-red-300 px-4 py-3 rounded-lg m-4">
-          {error}
+          {error || telemetryError}
         </div>
       )}
 
@@ -404,26 +439,31 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
         whenReady={() => setIsLoading(false)}
         zoomAnimation={true}
         fadeAnimation={true}
-        preferCanvas={true} // Performance optimization
-        updateWhenIdle={true} // Performance optimization
-        updateWhenZooming={false} // Performance optimization
+        preferCanvas={true}
+        updateWhenIdle={true}
+        updateWhenZooming={false}
       >
         <TileLayerSelector mapType={selectedMapType} />
 
-        {/* Drone marker */}
-        {dronePosition[0] !== 0 && dronePosition[1] !== 0 && (
+        {/* LIVE DRONE MARKER - Using real Redis data */}
+        {dronePosition[0] !== 0 && dronePosition[1] !== 0 && liveTelemetry && (
           <Marker
             position={dronePosition}
             icon={droneIcon}
           >
             <Popup>
               <div className="text-sm">
-                <div className="font-bold mb-1">Drone Status</div>
-                <div>Latitude: {telemetryData.latitude.toFixed(6)}°</div>
-                <div>Longitude: {telemetryData.longitude.toFixed(6)}°</div>
-                <div>Altitude MSL: {telemetryData.altitudeMSL.toFixed(2)}m</div>
-                <div>Armed: {telemetryData.armed ? 'Yes' : 'No'}</div>
-                <div>Mode: {telemetryData.flight_mode}</div>
+                <div className="font-bold mb-1">Live Drone Status</div>
+                <div>Latitude: {liveTelemetry.latitude.toFixed(6)}°</div>
+                <div>Longitude: {liveTelemetry.longitude.toFixed(6)}°</div>
+                <div>Altitude MSL: {liveTelemetry.altitude_msl?.toFixed(2) || 'N/A'}m</div>
+                <div>Altitude Rel: {liveTelemetry.altitude_relative?.toFixed(2) || 'N/A'}m</div>
+                <div>Armed: {liveTelemetry.armed ? 'Yes' : 'No'}</div>
+                <div>Mode: {liveTelemetry.flight_mode}</div>
+                <div>Battery: {liveTelemetry.percentage || 0}%</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Last Update: {new Date(liveTelemetry.timestamp).toLocaleTimeString()}
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -464,7 +504,7 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           </>
         )}
 
-        {/* Flight path history - Optimized */}
+        {/* Flight path history - FROM REAL MOVEMENT */}
         {pathHistory.length > 1 && (
           <Polyline
             positions={pathHistory}
@@ -478,7 +518,6 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
         <MapUpdater center={mapCenter} zoom={mapZoom} />
       </MapContainer>
 
-      {/* Rest of the controls remain the same... */}
       {/* Controls Panel */}
       <div className="absolute bottom-4 right-4 z-[1000] bg-gray-800/90 p-2 rounded-lg shadow border border-gray-700 space-y-2">
         <div className="flex justify-between items-center px-2 py-1">
@@ -537,27 +576,27 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
         </div>
       </div>
 
-      {/* Status Panel */}
+      {/* Status Panel - LIVE DATA */}
       <div className="absolute top-4 right-4 z-[1000] bg-gray-800/90 p-3 rounded-lg shadow border border-gray-700">
         <div className="flex items-center gap-2 mb-2">
-          <div className={`w-2 h-2 rounded-full ${telemetryData.connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+          <div className={`w-2 h-2 rounded-full ${liveTelemetry?.connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           <span className="text-sm font-light text-gray-300">
-            {telemetryData.connected ? 'CONNECTED' : 'DISCONNECTED'}
+            {liveTelemetry?.connected ? 'LIVE DATA' : 'NO DATA'}
           </span>
         </div>
         
-        {telemetryData.connected && (
+        {liveTelemetry?.connected && (
           <div className="flex gap-2">
             <div className={`px-2 py-1 rounded text-xs font-light tracking-wider ${
-              telemetryData.armed 
+              liveTelemetry.armed 
                 ? 'bg-red-500/20 text-red-300 border border-red-500/30' 
                 : 'bg-gray-700/50 text-gray-300 border border-gray-700'
             }`}>
-              {telemetryData.armed ? 'ARMED' : 'DISARMED'}
+              {liveTelemetry.armed ? 'ARMED' : 'DISARMED'}
             </div>
             
             <div className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded border border-blue-500/30 text-xs font-light tracking-wider">
-              {telemetryData.flight_mode || 'UNKNOWN'}
+              {liveTelemetry.flight_mode || 'UNKNOWN'}
             </div>
           </div>
         )}
@@ -569,6 +608,11 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           <MapPin className="h-4 w-4 text-blue-400" />
           <span className="text-gray-300">WAYPOINTS: {missionWaypoints.length}</span>
         </div>
+        {liveTelemetry && (
+          <div className="text-xs text-gray-400 mt-1">
+            ALT: {liveTelemetry.altitude_relative?.toFixed(1) || 'N/A'}m
+          </div>
+        )}
       </div>
 
       {/* Custom styles for markers */}
@@ -663,12 +707,10 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           opacity: 0.7;
         }
         
-        /* Dark theme for map */
         .leaflet-container {
           background: #1f2937 !important;
         }
         
-        /* Custom popup styling */
         .leaflet-popup-content-wrapper {
           background: rgba(17, 24, 39, 0.9);
           color: #e5e7eb;

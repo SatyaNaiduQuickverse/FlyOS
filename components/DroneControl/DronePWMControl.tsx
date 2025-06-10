@@ -1,7 +1,8 @@
-// components/DroneControl/DronePWMControl.tsx - CONNECTED TO API
+// components/DroneControl/DronePWMControl.tsx - FIXED TOKEN ISSUE
 import React, { useState, useRef, ReactElement, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { useAuth } from '../../lib/auth'; // FIXED: Import useAuth hook
 
 interface PWMValues {
   throttle: number;
@@ -35,6 +36,9 @@ const DronePWMControl: React.FC = () => {
   // Get droneId from URL params
   const params = useParams();
   const droneId = params?.droneId as string;
+  
+  // FIXED: Get token from useAuth hook instead of localStorage
+  const { token } = useAuth();
 
   const PWM_STEP = 50;
   const INITIAL_PWM: PWMValues = { throttle: 1000, yaw: 1500, pitch: 1500, roll: 1500 };
@@ -130,10 +134,15 @@ const DronePWMControl: React.FC = () => {
     }
   }, [droneId]);
 
-  // Send command to drone - wait for response before updating UI
+  // Send command to drone - FIXED: Use token from useAuth hook
   const sendCommand = async (command: string, params: CommandParams = {}): Promise<{ success: boolean; message?: string }> => {
     if (!droneId) {
       return { success: false, message: 'No drone ID available' };
+    }
+
+    // FIXED: Check if token is available
+    if (!token) {
+      return { success: false, message: 'No authentication token available' };
     }
 
     try {
@@ -141,7 +150,7 @@ const DronePWMControl: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+          'Authorization': `Bearer ${token}` // FIXED: Use token from useAuth hook
         },
         body: JSON.stringify({
           commandType: command,
@@ -313,6 +322,18 @@ const DronePWMControl: React.FC = () => {
     );
   };
 
+  // FIXED: Show token loading state
+  if (!token) {
+    return (
+      <div className="bg-slate-900/50 text-white rounded-lg shadow-lg border border-gray-800 backdrop-blur-sm shadow-slate-900/50 max-w-5xl mx-auto p-6">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full mr-3"></div>
+          <span>Authenticating...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="bg-slate-900/50 text-white rounded-lg shadow-lg border border-gray-800 backdrop-blur-sm shadow-slate-900/50 max-w-5xl mx-auto p-6"
@@ -394,7 +415,7 @@ const DronePWMControl: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               {flightActions.map((action) => {
                 const isLoading = actionInProgress === action.endpoint;
-                const isDisabled = !liveTelemetry?.connected || isLoading;
+                const isDisabled = !liveTelemetry?.connected || isLoading || !token; // FIXED: Add token check
                 
                 return (
                   <button
@@ -432,11 +453,11 @@ const DronePWMControl: React.FC = () => {
               <span className="text-gray-300 tracking-wider">AUTO UPDATE PWM</span>
               <button
                 onClick={() => setAutoPWMUpdate((prev) => !prev)}
-                disabled={!liveTelemetry?.connected}
+                disabled={!liveTelemetry?.connected || !token} // FIXED: Add token check
                 className={`relative inline-flex items-center h-6 rounded-full w-12 transition-colors ${
                   autoPWMUpdate ? 'bg-green-500/50' : 'bg-red-500/50'
                 } border ${autoPWMUpdate ? 'border-green-500/30' : 'border-red-500/30'}
-                ${!liveTelemetry?.connected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                ${(!liveTelemetry?.connected || !token) ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <span
                   className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${
