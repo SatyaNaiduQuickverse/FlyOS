@@ -1,40 +1,20 @@
-// components/DroneControl/WaypointDropbox.tsx
+// components/DroneControl/WaypointDropbox.tsx - COMPLETE WITH BACKEND INTEGRATION
 import React, { useState, useRef, useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import { useAuth } from '../../lib/auth';
 
 interface Waypoint {
   seq: number;
   lat: number;
   lng: number;
   alt: number;
+  command: number;
+  frame: number;
+  param1: number;
+  param2: number;
+  param3: number;
+  param4: number;
 }
-
-// Define proper interface types
-interface DataEvent {
-  [key: string]: unknown; // Use unknown instead of any
-}
-
-// Use a generic base type for any socket data
-type SocketEventCallback = (data: DataEvent) => void;
-
-// Mock socket manager with proper type definitions
-const socketManager = {
-  isConnected: (): boolean => true,
-  connect: (): void => console.log('Mock: Socket connected'),
-  disconnect: (): void => console.log('Mock: Socket disconnected'),
-  subscribe: (event: string, callback: SocketEventCallback): void => 
-    console.log(`Mock: Subscribed to ${event}`),
-  unsubscribe: (event: string, callback: SocketEventCallback): void => 
-    console.log(`Mock: Unsubscribed from ${event}`),
-  sendCommand: (command: string, data?: Record<string, unknown>): boolean => {
-    console.log(`Mock: Sending command ${command}`, data);
-    return true;
-  }
-};
-
-// Mock waypoint store for UI functionality
-const waypointStore = {
-  setWaypoints: (waypoints: Waypoint[]): void => console.log('Mock: Setting waypoints', waypoints),
-};
 
 interface StatusMessage {
   type: 'success' | 'error';
@@ -47,6 +27,10 @@ interface ValidationStatus {
 }
 
 const WaypointDropbox: React.FC = () => {
+  const params = useParams();
+  const droneId = params?.droneId as string;
+  const { token } = useAuth();
+  
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [missionStatus, setMissionStatus] = useState<'idle' | 'uploaded' | 'running'>('idle');
@@ -55,86 +39,85 @@ const WaypointDropbox: React.FC = () => {
   const [waypointCount, setWaypointCount] = useState<number>(0);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isClearing, setIsClearing] = useState<boolean>(false);
-  const [isConnected, setIsConnected] = useState<boolean>(true); // Mock connected state
+  const [isConnected, setIsConnected] = useState<boolean>(true);
   const [isArmed, setIsArmed] = useState<boolean>(false);
+  const [missionId, setMissionId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    // Connect to drone
-    socketManager.connect();
+  // Parse QGC waypoint file format
+  const parseWaypointFile = async (file: File): Promise<Waypoint[]> => {
+    const fileContent = await file.text();
+    const lines = fileContent.trim().split('\n');
+    const waypoints: Waypoint[] = [];
 
-    // Subscribe to various status updates
-    const handleConnection: SocketEventCallback = () => {
-      // Implementation preserved for future backend integration
-      setIsConnected(true);
-      console.log('Mock: Connected to drone');
-    };
+    // Skip QGC header if present
+    const startIdx = lines[0].startsWith('QGC') ? 1 : 0;
 
-    const handleTelemetry: SocketEventCallback = (data) => {
-      // Implementation preserved for future backend integration
-      if (typeof data === 'object' && data !== null) {
-        if ('flight_mode' in data && data.flight_mode === 'AUTO') {
-          setMissionStatus('running');
-        }
-        if ('armed' in data && typeof data.armed === 'boolean') {
-          setIsArmed(data.armed);
-        }
-      }
-    };
+    for (let i = startIdx; i < lines.length; i++) {
+      const parts = lines[i].trim().split('\t');
+      if (parts.length < 12) continue;
 
-    const handleCommandResponse: SocketEventCallback = () => {
-      // Implementation preserved for future backend integration
-      console.log('Mock Command response received');
-    };
+      const waypoint: Waypoint = {
+        seq: parseInt(parts[0]),
+        frame: parseInt(parts[2]), // 0 = global, 3 = relative
+        command: parseInt(parts[3]), // MAV_CMD
+        param1: parseFloat(parts[4]), // Hold time
+        param2: parseFloat(parts[5]), // Accept radius
+        param3: parseFloat(parts[6]), // Pass radius
+        param4: parseFloat(parts[7]), // Yaw
+        lat: parseFloat(parts[8]),
+        lng: parseFloat(parts[9]),
+        alt: parseFloat(parts[10])
+      };
 
-    socketManager.subscribe('connection', handleConnection);
-    socketManager.subscribe('telemetry', handleTelemetry);
-    socketManager.subscribe('command_response', handleCommandResponse);
+      waypoints.push(waypoint);
+    }
 
-    return () => {
-      socketManager.unsubscribe('connection', handleConnection);
-      socketManager.unsubscribe('telemetry', handleTelemetry);
-      socketManager.unsubscribe('command_response', handleCommandResponse);
-      socketManager.disconnect();
-    };
-  }, []);
+    return waypoints;
+  };
 
   const validateWaypointFile = async (file: File): Promise<boolean> => {
     try {
-      const fileContent = await file.text();
-      // Save fileContent for future backend integration
-      console.log('Mock: Validating waypoint file', fileContent.substring(0, 50) + '...');
+      const waypoints = await parseWaypointFile(file);
       
-      // Mock successful validation
-      const mockWaypoints: Waypoint[] = Array(12).fill({}).map((_, i) => ({
-        seq: i,
-        lat: 40.7128 + (Math.random() * 0.01),
-        lng: -74.0060 + (Math.random() * 0.01),
-        alt: 100 + (Math.random() * 50)
-      }));
-      
-      // Update waypoint store (mocked)
-      waypointStore.setWaypoints(mockWaypoints);
-      
-      // Simulate sending to drone if connected
-      if (socketManager.isConnected()) {
-        socketManager.sendCommand('update_mission_data', {
-          waypoints: mockWaypoints
+      if (waypoints.length === 0) {
+        setValidationStatus({
+          isValid: false,
+          message: 'No valid waypoints found in file'
         });
+        return false;
+      }
+
+      // Validate waypoint data
+      for (const wp of waypoints) {
+        if (isNaN(wp.lat) || isNaN(wp.lng) || isNaN(wp.alt)) {
+          setValidationStatus({
+            isValid: false,
+            message: 'Invalid coordinates found in waypoint data'
+          });
+          return false;
+        }
+        
+        if (Math.abs(wp.lat) > 90 || Math.abs(wp.lng) > 180) {
+          setValidationStatus({
+            isValid: false,
+            message: 'Coordinates out of valid range'
+          });
+          return false;
+        }
       }
 
       setValidationStatus({
         isValid: true,
-        message: `Valid waypoint file with ${mockWaypoints.length} waypoints`
+        message: `Valid waypoint file with ${waypoints.length} waypoints`
       });
-      setWaypointCount(mockWaypoints.length);
+      setWaypointCount(waypoints.length);
       return true;
 
     } catch (error) {
-      console.error("VALIDATION ERROR:", error);
       setValidationStatus({
         isValid: false,
-        message: error instanceof Error ? error.message : 'Error validating waypoint file'
+        message: 'Error parsing waypoint file'
       });
       return false;
     }
@@ -200,10 +183,10 @@ const WaypointDropbox: React.FC = () => {
   };
 
   const handleRun = async (): Promise<void> => {
-    if (!selectedFile || !isConnected) {
+    if (!selectedFile || !token || !droneId) {
       setStatusMessage({
         type: 'error',
-        message: !isConnected ? 'Not connected to drone' : 'Please select a file'
+        message: 'Missing required data for upload'
       });
       return;
     }
@@ -218,90 +201,137 @@ const WaypointDropbox: React.FC = () => {
 
     setIsUploading(true);
     
-    // Mock upload process
     try {
-      // In a real implementation, would read the file and send to drone
-      console.log('Mock: Sending waypoint upload command...');
+      // Parse waypoints from file
+      const waypoints = await parseWaypointFile(selectedFile);
       
-      // Simulate successful upload after delay
-      setTimeout(() => {
-        setIsUploading(false);
+      // Create mission payload
+      const missionData = {
+        waypoints: waypoints,
+        fileName: selectedFile.name,
+        totalWaypoints: waypoints.length,
+        uploadedBy: 'user', // Will be filled by backend with actual user
+        uploadedAt: new Date().toISOString()
+      };
+
+      // Send to backend API
+      const response = await fetch(`/api/drones/${droneId}/command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          commandType: 'upload_waypoints',
+          parameters: missionData
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
         setMissionStatus('uploaded');
+        setMissionId(result.missionId || result.commandId || Date.now().toString());
         setStatusMessage({
           type: 'success',
-          message: 'Mission uploaded to drone. Arm the drone and click Start Mission.'
+          message: `Mission uploaded successfully! ${waypoints.length} waypoints sent to drone.`
         });
-      }, 1500);
-      
+      } else {
+        setStatusMessage({
+          type: 'error',
+          message: `Upload failed: ${result.message || 'Unknown error'}`
+        });
+      }
     } catch (error) {
-      console.error('Upload error:', error);
       setStatusMessage({
         type: 'error',
-        message: `Error: ${error instanceof Error ? error.message : 'Upload failed'}`
+        message: `Upload error: ${error instanceof Error ? error.message : 'Network error'}`
       });
+    } finally {
       setIsUploading(false);
     }
   };
 
-  const handleStartMission = (): void => {
-    if (!isConnected) {
-      setStatusMessage({
-        type: 'error',
-        message: 'Not connected to drone'
-      });
-      return;
-    }
+  const handleStartMission = async (): Promise<void> => {
+    if (!token || !droneId) return;
 
-    // Mock start mission
-    const success = socketManager.sendCommand('start_mission');
-    if (success) {
-      setMissionStatus('running');
-      setStatusMessage({
-        type: 'success',
-        message: 'Mission started successfully!'
+    try {
+      const response = await fetch(`/api/drones/${droneId}/command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          commandType: 'start_mission',
+          parameters: { missionId }
+        })
       });
-    } else {
+
+      const result = await response.json();
+
+      if (result.success) {
+        setMissionStatus('running');
+        setStatusMessage({
+          type: 'success',
+          message: 'Mission started successfully!'
+        });
+      } else {
+        setStatusMessage({
+          type: 'error',
+          message: `Failed to start mission: ${result.message}`
+        });
+      }
+    } catch (error) {
       setStatusMessage({
         type: 'error',
-        message: 'Failed to send start mission command: Not connected'
+        message: 'Network error starting mission'
       });
     }
   };
 
-  const handleAbort = (): void => {
-    if (!isConnected) {
-      setStatusMessage({
-        type: 'error',
-        message: 'Not connected to drone'
-      });
-      return;
-    }
+  const handleAbort = async (): Promise<void> => {
+    if (!token || !droneId) return;
 
-    // Mock abort mission
-    const success = socketManager.sendCommand('cancel_mission');
-    if (success) {
-      setMissionStatus('idle');
-      setSelectedFile(null);
-      setStatusMessage({
-        type: 'success',
-        message: 'Mission aborted. Drone will land safely.'
+    try {
+      const response = await fetch(`/api/drones/${droneId}/command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          commandType: 'cancel_mission',
+          parameters: { missionId }
+        })
       });
-    } else {
+
+      const result = await response.json();
+
+      if (result.success) {
+        setMissionStatus('idle');
+        setSelectedFile(null);
+        setMissionId(null);
+        setStatusMessage({
+          type: 'success',
+          message: 'Mission aborted. Drone will land safely.'
+        });
+      } else {
+        setStatusMessage({
+          type: 'error',
+          message: `Failed to abort mission: ${result.message}`
+        });
+      }
+    } catch (error) {
       setStatusMessage({
         type: 'error',
-        message: 'Failed to send abort command: Not connected'
+        message: 'Network error aborting mission'
       });
     }
   };
 
-  const handleClearMission = (): void => {
-    if (!isConnected) {
-      setStatusMessage({
-        type: 'error',
-        message: 'Not connected to drone'
-      });
-      return;
-    }
+  const handleClearMission = async (): Promise<void> => {
+    if (!token || !droneId) return;
 
     if (isArmed) {
       setStatusMessage({
@@ -313,21 +343,45 @@ const WaypointDropbox: React.FC = () => {
 
     setIsClearing(true);
     
-    // Mock clear mission
-    console.log('Mock: Sending clear mission command...');
-    
-    // Simulate success after delay
-    setTimeout(() => {
-      setIsClearing(false);
-      setMissionStatus('idle');
-      setSelectedFile(null);
-      setWaypointCount(0);
-      setValidationStatus(null);
-      setStatusMessage({
-        type: 'success',
-        message: 'Mission waypoints cleared successfully.'
+    try {
+      const response = await fetch(`/api/drones/${droneId}/command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          commandType: 'clear_waypoints',
+          parameters: { missionId }
+        })
       });
-    }, 1000);
+
+      const result = await response.json();
+
+      if (result.success) {
+        setMissionStatus('idle');
+        setSelectedFile(null);
+        setWaypointCount(0);
+        setValidationStatus(null);
+        setMissionId(null);
+        setStatusMessage({
+          type: 'success',
+          message: 'Mission waypoints cleared successfully.'
+        });
+      } else {
+        setStatusMessage({
+          type: 'error',
+          message: `Failed to clear mission: ${result.message}`
+        });
+      }
+    } catch (error) {
+      setStatusMessage({
+        type: 'error',
+        message: 'Network error clearing mission'
+      });
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   return (
@@ -353,7 +407,7 @@ const WaypointDropbox: React.FC = () => {
         </div>
       </div>
 
-      {/* Status Messages - Enhanced */}
+      {/* Status Messages */}
       {statusMessage && (
         <div className={`mb-6 p-4 rounded-lg border backdrop-blur-sm ${
           statusMessage.type === 'success'
@@ -364,7 +418,7 @@ const WaypointDropbox: React.FC = () => {
         </div>
       )}
 
-      {/* Validation Status - Enhanced */}
+      {/* Validation Status */}
       {validationStatus && (
         <div className={`mb-6 p-4 rounded-lg border backdrop-blur-sm ${
           validationStatus.isValid
@@ -391,7 +445,7 @@ const WaypointDropbox: React.FC = () => {
         </div>
       )}
 
-      {/* Dropbox - Enhanced */}
+      {/* Dropbox */}
       <div
         className={`border-2 ${
           dragActive
@@ -431,15 +485,15 @@ const WaypointDropbox: React.FC = () => {
         )}
       </div>
 
-      {/* Upload/Abort/Clear Buttons - Enhanced */}
+      {/* Action Buttons */}
       <div className="flex flex-wrap gap-4 mt-6">
         {missionStatus === 'idle' && (
           <>
             <button
               onClick={handleRun}
-              disabled={!selectedFile || !isConnected || isUploading || isArmed}
+              disabled={!selectedFile || !isConnected || isUploading || isArmed || !token}
               className={`flex-1 py-3 px-4 rounded-lg text-white font-light tracking-wider transition-all duration-300
-              ${(selectedFile && isConnected && !isUploading && !isArmed)
+              ${(selectedFile && isConnected && !isUploading && !isArmed && token)
                 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
                 : 'bg-slate-800/50 text-gray-500 cursor-not-allowed border border-gray-800'}`}
             >
@@ -448,9 +502,9 @@ const WaypointDropbox: React.FC = () => {
             {waypointCount > 0 && (
               <button
                 onClick={handleClearMission}
-                disabled={!isConnected || isClearing || isArmed}
+                disabled={!isConnected || isClearing || isArmed || !token}
                 className={`py-3 px-4 rounded-lg font-light tracking-wider transition-all duration-300
-                ${(isConnected && !isClearing && !isArmed)
+                ${(isConnected && !isClearing && !isArmed && token)
                   ? 'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/30'
                   : 'bg-slate-800/50 text-gray-500 cursor-not-allowed border border-gray-800'}`}
               >
@@ -464,9 +518,9 @@ const WaypointDropbox: React.FC = () => {
           <>
             <button
               onClick={handleStartMission}
-              disabled={!isConnected}
+              disabled={!isConnected || !token}
               className={`flex-1 py-3 px-4 rounded-lg font-light tracking-wider transition-all duration-300
-              ${isConnected
+              ${(isConnected && token)
                 ? 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30'
                 : 'bg-slate-800/50 text-gray-500 cursor-not-allowed border border-gray-800'}`}
             >
@@ -474,7 +528,7 @@ const WaypointDropbox: React.FC = () => {
             </button>
             <button
               onClick={handleAbort}
-              disabled={!isConnected}
+              disabled={!isConnected || !token}
               className="flex-1 py-3 px-4 rounded-lg text-red-300 font-light tracking-wider
                 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 transition-all duration-300"
             >
@@ -482,33 +536,21 @@ const WaypointDropbox: React.FC = () => {
             </button>
             <button
               onClick={handleClearMission}
-              disabled={!isConnected || isClearing || isArmed}
+              disabled={!isConnected || isClearing || isArmed || !token}
               className={`w-full mt-2 py-3 px-4 rounded-lg font-light tracking-wider transition-all duration-300
-              ${(isConnected && !isClearing && !isArmed)
+              ${(isConnected && !isClearing && !isArmed && token)
                 ? 'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/30'
                 : 'bg-slate-800/50 text-gray-500 cursor-not-allowed border border-gray-800'}`}
             >
               {isClearing ? 'CLEARING...' : 'CLEAR MISSION'}
             </button>
-            {selectedFile && (
-              <button
-                onClick={handleRun}
-                disabled={!selectedFile || !isConnected || isUploading || isArmed}
-                className={`w-full mt-2 py-3 px-4 rounded-lg text-white font-light tracking-wider transition-all duration-300
-                ${(selectedFile && isConnected && !isUploading && !isArmed)
-                  ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
-                  : 'bg-slate-800/50 text-gray-500 cursor-not-allowed border border-gray-800'}`}
-              >
-                {isUploading ? 'UPLOADING...' : 'UPLOAD NEW MISSION'}
-              </button>
-            )}
           </>
         )}
         
         {missionStatus === 'running' && (
           <button
             onClick={handleAbort}
-            disabled={!isConnected}
+            disabled={!isConnected || !token}
             className="flex-1 py-3 px-4 rounded-lg text-red-300 font-light tracking-wider
               bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 transition-all duration-300"
           >
@@ -517,7 +559,7 @@ const WaypointDropbox: React.FC = () => {
         )}
       </div>
 
-      {/* Status Message - Enhanced */}
+      {/* Status Message */}
       <p className="mt-6 text-sm text-gray-400 text-center tracking-wider font-light">
         {missionStatus === 'uploaded'
           ? 'Mission uploaded to drone - Arm drone then press Start Mission'
@@ -528,13 +570,19 @@ const WaypointDropbox: React.FC = () => {
           : 'Select a waypoint file to begin'}
       </p>
 
-      {/* Debug Info - Enhanced */}
+      {/* Debug Info */}
       <div className="mt-6 pt-4 border-t border-gray-800 text-sm text-gray-400 tracking-wider font-light flex items-center justify-center gap-4 flex-wrap">
         <span>STATUS: {missionStatus.toUpperCase()}</span>
         <span className="text-gray-600">•</span>
         <span>ARMED: {isArmed ? 'YES' : 'NO'}</span>
         <span className="text-gray-600">•</span>
         <span>CONNECTED: {isConnected ? 'YES' : 'NO'}</span>
+        {missionId && (
+          <>
+            <span className="text-gray-600">•</span>
+            <span>ID: {missionId.slice(-8)}</span>
+          </>
+        )}
       </div>
     </div>
   );

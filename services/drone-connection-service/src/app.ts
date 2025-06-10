@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/app.ts - UPDATED WITH COMMAND HANDLER
+// services/drone-connection-service/src/app.ts - UPDATED WITH MISSION HANDLER
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -6,8 +6,10 @@ import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { setupDroneHandler } from './droneHandler';
 import { setupCommandHandler } from './commandHandler';
+import { setupMissionHandler } from './missionHandler';
 import { initRedis } from './redis';
 import { logger } from './utils/logger';
+import { cleanupOldMissions } from './missionStorage';
 
 // Global type declaration
 declare global {
@@ -33,7 +35,8 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     service: 'drone-connection-service',
     timestamp: new Date().toISOString(),
-    connectedDrones: Object.keys(global.connectedDrones || {}).length
+    connectedDrones: Object.keys(global.connectedDrones || {}).length,
+    features: ['telemetry', 'commands', 'waypoint-missions']
   });
 });
 
@@ -70,6 +73,30 @@ app.get('/redis/:droneId', async (req, res) => {
   }
 });
 
+// Mission history endpoint
+app.get('/missions/:droneId', async (req, res) => {
+  try {
+    const droneId = req.params.droneId;
+    const limit = parseInt(req.query.limit as string) || 10;
+    
+    const { getDroneMissions } = await import('./missionStorage');
+    const missions = await getDroneMissions(droneId, limit);
+    
+    res.json({
+      success: true,
+      droneId,
+      missions,
+      count: missions.length
+    });
+  } catch (error) {
+    logger.error(`Error getting missions for ${req.params.droneId}:`, error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to get mission history'
+    });
+  }
+});
+
 // Socket.IO server for drone connections
 const io = new Server(server, {
   cors: {
@@ -82,7 +109,7 @@ const io = new Server(server, {
 
 const startServer = async () => {
   try {
-    logger.info('🚀 Starting Drone Connection Service...');
+    logger.info('🚀 Starting Enhanced Drone Connection Service...');
     
     // Initialize Redis connection
     await initRedis();
@@ -96,26 +123,41 @@ const startServer = async () => {
     setupCommandHandler(io);
     logger.info('✅ Command handler configured');
     
+    // Setup mission handler for waypoint missions
+    setupMissionHandler(io);
+    logger.info('✅ Mission handler configured');
+    
     // Global connected drones registry
     global.connectedDrones = {};
     
+    // Setup periodic cleanup (every hour)
+    setInterval(async () => {
+      try {
+        await cleanupOldMissions();
+      } catch (error) {
+        logger.error('Periodic cleanup error:', error);
+      }
+    }, 60 * 60 * 1000); // 1 hour
+    
     server.listen(PORT, () => {
-      logger.info(`🎯 Drone Connection Service running on port ${PORT}`);
+      logger.info(`🎯 Enhanced Drone Connection Service running on port ${PORT}`);
       logger.info(`📡 WebSocket endpoint: ws://localhost:${PORT}`);
       logger.info(`📊 Status endpoint: http://localhost:${PORT}/status`);
       logger.info(`🔴 Redis endpoint: http://localhost:${PORT}/redis/:droneId`);
+      logger.info(`🗺️ Mission endpoint: http://localhost:${PORT}/missions/:droneId`);
       logger.info(`🎮 Command channels: drone:*:commands`);
+      logger.info(`✈️ Mission commands: upload_waypoints, start_mission, cancel_mission, clear_waypoints`);
     });
     
   } catch (error) {
-    logger.error('❌ Failed to start drone connection service:', error);
+    logger.error('❌ Failed to start enhanced drone connection service:', error);
     process.exit(1);
   }
 };
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  logger.info('🛑 Shutting down drone connection service...');
+  logger.info('🛑 Shutting down enhanced drone connection service...');
   server.close(() => {
     logger.info('✅ Service shutdown complete');
     process.exit(0);

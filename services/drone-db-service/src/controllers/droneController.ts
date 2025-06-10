@@ -1,4 +1,4 @@
-// services/drone-db-service/src/controllers/droneController.ts - UPDATED COMMAND CONTROLLER
+// services/drone-db-service/src/controllers/droneController.ts - ENHANCED WITH MISSIONS
 import { Request, Response } from 'express';
 import { 
   storeTelemetryData, 
@@ -6,6 +6,11 @@ import {
   recordCommand,
   getCommandHistory
 } from '../services/droneService';
+import { 
+  storeMissionInDB, 
+  updateMissionStatusInDB,
+  getDroneMissionHistory 
+} from '../services/missionService';
 import { pool } from '../database';
 import { redisClient } from '../redis';
 import { logger } from '../utils/logger';
@@ -218,7 +223,13 @@ const isManualControl = (commandType: string): boolean => {
   return manualControls.includes(commandType.toLowerCase());
 };
 
-// Send command to drone - UPDATED WITH REDIS PUBLISHING
+// Helper function to determine if command is mission-related
+const isMissionCommand = (commandType: string): boolean => {
+  const missionCommands = ['upload_waypoints', 'start_mission', 'cancel_mission', 'clear_waypoints'];
+  return missionCommands.includes(commandType.toLowerCase());
+};
+
+// Enhanced send command controller with mission support
 export const sendCommandController = async (req: Request, res: Response) => {
   try {
     const { droneId } = req.params;
@@ -240,7 +251,12 @@ export const sendCommandController = async (req: Request, res: Response) => {
       });
     }
     
-    // Create command payload
+    // Handle mission commands specially
+    if (isMissionCommand(commandType)) {
+      return await handleMissionCommand(req, res, droneId, commandType, parameters, userId);
+    }
+    
+    // Handle regular commands (existing logic)
     const commandPayload = {
       id: Date.now(),
       droneId,
@@ -253,29 +269,21 @@ export const sendCommandController = async (req: Request, res: Response) => {
     logger.info(`📤 Sending command to ${droneId}: ${commandType}`);
     
     try {
-      // Check if this is a manual control command
       if (isManualControl(commandType)) {
-        logger.debug(`⚡ Manual control command: ${commandType} - using fast path`);
-        
-        // Fast path: publish to Redis immediately
+        // Fast path for manual controls
         await redisClient.publish(
           `drone:${droneId}:commands`,
           JSON.stringify(commandPayload)
         );
         
-        // Background logging (non-blocking)
         recordCommand(droneId, userId, commandType, parameters || {})
           .catch(err => logger.warn(`Background logging failed for ${commandType}:`, err));
         
         logger.info(`⚡ Fast command sent to ${droneId}: ${commandType}`);
-        
       } else {
-        logger.debug(`🔒 Critical command: ${commandType} - using safe path`);
-        
-        // Critical commands: wait for database logging first
+        // Safe path for critical commands
         const command = await recordCommand(droneId, userId, commandType, parameters || {});
         
-        // Then publish to Redis
         const payloadWithDbId = {
           ...commandPayload,
           dbId: command.id
@@ -301,7 +309,6 @@ export const sendCommandController = async (req: Request, res: Response) => {
     } catch (redisError) {
       logger.error(`Redis publish failed for ${droneId}:`, redisError);
       
-      // Fallback: still try to record in database
       try {
         const command = await recordCommand(droneId, userId, commandType, parameters || {});
         return res.status(202).json({
@@ -325,6 +332,124 @@ export const sendCommandController = async (req: Request, res: Response) => {
       success: false, 
       message: 'Server error',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Handle mission-specific commands
+const handleMissionCommand = async (
+  req: Request, 
+  res: Response, 
+  droneId: string, 
+  commandType: string, 
+  parameters: any, 
+  userId: string
+) => {
+  try {
+    const missionId = `mission_${Date.now()}_${droneId}`;
+    
+    // Handle waypoint upload specially
+    if (commandType === 'upload_waypoints') {
+      const { waypoints, fileName, totalWaypoints } = parameters;
+      
+      if (!waypoints || !Array.isArray(waypoints) || waypoints.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid waypoints array is required'
+        });
+      }
+      
+      // Store mission in database for safety
+      const missionData = {
+        missionId,
+        droneId,
+        userId,
+        fileName: fileName || 'uploaded_waypoints.txt',
+        waypoints,
+        totalWaypoints: waypoints.length,
+        status: 'uploaded' as const,
+        commandId: missionId
+      };
+      
+      try {
+        await storeMissionInDB(missionData);
+        logger.info(`💾 Mission stored in database: ${missionId}`);
+      } catch (dbError) {
+        logger.error(`Failed to store mission in database:`, dbError);
+        // Continue with Redis publish even if DB storage fails
+      }
+    }
+    
+    // Create command payload for Redis
+    const commandPayload = {
+      id: missionId,
+      droneId,
+      commandType,
+      parameters: {
+        ...parameters,
+        missionId
+      },
+      userId,
+      timestamp: new Date().toISOString()
+    };
+    
+    // Record command in audit log
+    await recordCommand(droneId, userId, commandType, commandPayload.parameters);
+    
+    // Publish to Redis for drone-connection-service
+    await redisClient.publish(
+      `drone:${droneId}:commands`,
+      JSON.stringify(commandPayload)
+    );
+    
+    logger.info(`🗺️ Mission command sent: ${commandType} for ${droneId}`);
+    
+    return res.status(200).json({
+      success: true,
+      message: `Mission command processed: ${commandType}`,
+      commandId: missionId,
+      missionId: missionId,
+      droneId: droneId,
+      commandType: commandType,
+      timestamp: commandPayload.timestamp
+    });
+    
+  } catch (error) {
+    logger.error(`Mission command error: ${error}`);
+    return res.status(500).json({
+      success: false,
+      message: 'Mission command failed',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get mission history for a drone
+export const getMissionHistoryController = async (req: Request, res: Response) => {
+  try {
+    const { droneId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 20;
+    
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+    
+    const missions = await getDroneMissionHistory(droneId, limit);
+    
+    return res.status(200).json({
+      success: true,
+      droneId,
+      missions,
+      count: missions.length
+    });
+  } catch (error) {
+    logger.error(`Error getting mission history: ${error}`);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
     });
   }
 };
