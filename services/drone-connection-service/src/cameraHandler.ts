@@ -1,7 +1,12 @@
 // services/drone-connection-service/src/cameraHandler.ts
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import { redisClient } from './redis';
 import { logger } from './utils/logger';
+
+// Extend Socket interface to include droneId
+interface DroneSocket extends Socket {
+  droneId?: string;
+}
 
 interface CameraFrame {
   droneId: string;
@@ -18,7 +23,7 @@ interface CameraFrame {
 export const setupCameraHandler = (io: Server) => {
   logger.info('🎥 Setting up camera stream handler...');
 
-  io.on('connection', (socket) => {
+  io.on('connection', (socket: DroneSocket) => {
     // Handle camera frame from drone
     socket.on('camera_frame', async (data: CameraFrame) => {
       try {
