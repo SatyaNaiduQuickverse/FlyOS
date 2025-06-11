@@ -1,4 +1,4 @@
-// services/drone-db-service/src/controllers/droneController.ts - ENHANCED WITH MISSIONS
+// services/drone-db-service/src/controllers/droneController.ts - FIXED JSON PARSING
 import { Request, Response } from 'express';
 import { 
   storeTelemetryData, 
@@ -229,7 +229,7 @@ const isMissionCommand = (commandType: string): boolean => {
   return missionCommands.includes(commandType.toLowerCase());
 };
 
-// Enhanced send command controller with mission support
+// FIXED: Enhanced send command controller with proper JSON error handling
 export const sendCommandController = async (req: Request, res: Response) => {
   try {
     const { droneId } = req.params;
@@ -269,32 +269,61 @@ export const sendCommandController = async (req: Request, res: Response) => {
     logger.info(`📤 Sending command to ${droneId}: ${commandType}`);
     
     try {
+      // FIXED: Wrap Redis operations in proper error handling
       if (isManualControl(commandType)) {
-        // Fast path for manual controls
-        await redisClient.publish(
-          `drone:${droneId}:commands`,
-          JSON.stringify(commandPayload)
-        );
+        // Fast path for manual controls - don't wait for Redis response
+        try {
+          await redisClient.publish(
+            `drone:${droneId}:commands`,
+            JSON.stringify(commandPayload)
+          );
+          
+          // Background logging - don't block response
+          recordCommand(droneId, userId, commandType, parameters || {})
+            .catch(err => logger.warn(`Background logging failed for ${commandType}:`, err));
+          
+          logger.info(`⚡ Fast command sent to ${droneId}: ${commandType}`);
+        } catch (redisError) {
+          logger.warn(`Redis publish failed for manual control ${commandType}:`, redisError);
+          // For manual controls, we can continue without Redis
+        }
         
-        recordCommand(droneId, userId, commandType, parameters || {})
-          .catch(err => logger.warn(`Background logging failed for ${commandType}:`, err));
-        
-        logger.info(`⚡ Fast command sent to ${droneId}: ${commandType}`);
       } else {
         // Safe path for critical commands
-        const command = await recordCommand(droneId, userId, commandType, parameters || {});
-        
-        const payloadWithDbId = {
-          ...commandPayload,
-          dbId: command.id
-        };
-        
-        await redisClient.publish(
-          `drone:${droneId}:commands`,
-          JSON.stringify(payloadWithDbId)
-        );
-        
-        logger.info(`🔒 Critical command sent to ${droneId}: ${commandType}`);
+        try {
+          const command = await recordCommand(droneId, userId, commandType, parameters || {});
+          
+          const payloadWithDbId = {
+            ...commandPayload,
+            dbId: command.id
+          };
+          
+          await redisClient.publish(
+            `drone:${droneId}:commands`,
+            JSON.stringify(payloadWithDbId)
+          );
+          
+          logger.info(`🔒 Critical command sent to ${droneId}: ${commandType}`);
+        } catch (redisError) {
+          logger.error(`Redis publish failed for critical command ${commandType}:`, redisError);
+          
+          // Still record in database for audit
+          try {
+            const command = await recordCommand(droneId, userId, commandType, parameters || {});
+            return res.status(202).json({
+              success: true,
+              message: 'Command recorded but real-time delivery failed',
+              commandId: command.id,
+              warning: 'Drone may not receive command immediately'
+            });
+          } catch (dbError) {
+            logger.error(`Database recording also failed:`, dbError);
+            return res.status(500).json({
+              success: false,
+              message: 'Command failed - both Redis and database unavailable'
+            });
+          }
+        }
       }
       
       return res.status(200).json({
@@ -306,28 +335,17 @@ export const sendCommandController = async (req: Request, res: Response) => {
         timestamp: commandPayload.timestamp
       });
       
-    } catch (redisError) {
-      logger.error(`Redis publish failed for ${droneId}:`, redisError);
-      
-      try {
-        const command = await recordCommand(droneId, userId, commandType, parameters || {});
-        return res.status(202).json({
-          success: true,
-          message: 'Command recorded but real-time delivery failed',
-          commandId: command.id,
-          warning: 'Drone may not receive command immediately'
-        });
-      } catch (dbError) {
-        logger.error(`Database recording also failed:`, dbError);
-        return res.status(500).json({
-          success: false,
-          message: 'Command failed - both Redis and database unavailable'
-        });
-      }
+    } catch (error) {
+      logger.error(`Unexpected error in command processing:`, error);
+      return res.status(500).json({
+        success: false,
+        message: 'Command processing failed',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
     
   } catch (error) {
-    logger.error(`Error sending command: ${error}`);
+    logger.error(`Error in sendCommandController: ${error}`);
     return res.status(500).json({ 
       success: false, 
       message: 'Server error',
@@ -336,7 +354,7 @@ export const sendCommandController = async (req: Request, res: Response) => {
   }
 };
 
-// Handle mission-specific commands
+// FIXED: Handle mission-specific commands with proper error handling
 const handleMissionCommand = async (
   req: Request, 
   res: Response, 
@@ -393,26 +411,39 @@ const handleMissionCommand = async (
       timestamp: new Date().toISOString()
     };
     
-    // Record command in audit log
-    await recordCommand(droneId, userId, commandType, commandPayload.parameters);
+    // Record command in audit log (non-blocking)
+    recordCommand(droneId, userId, commandType, commandPayload.parameters)
+      .catch(err => logger.warn(`Audit logging failed for ${commandType}:`, err));
     
-    // Publish to Redis for drone-connection-service
-    await redisClient.publish(
-      `drone:${droneId}:commands`,
-      JSON.stringify(commandPayload)
-    );
-    
-    logger.info(`🗺️ Mission command sent: ${commandType} for ${droneId}`);
-    
-    return res.status(200).json({
-      success: true,
-      message: `Mission command processed: ${commandType}`,
-      commandId: missionId,
-      missionId: missionId,
-      droneId: droneId,
-      commandType: commandType,
-      timestamp: commandPayload.timestamp
-    });
+    // FIXED: Wrap Redis publish in proper error handling
+    try {
+      await redisClient.publish(
+        `drone:${droneId}:commands`,
+        JSON.stringify(commandPayload)
+      );
+      
+      logger.info(`🗺️ Mission command sent: ${commandType} for ${droneId}`);
+      
+      return res.status(200).json({
+        success: true,
+        message: `Mission command processed: ${commandType}`,
+        commandId: missionId,
+        missionId: missionId,
+        droneId: droneId,
+        commandType: commandType,
+        timestamp: commandPayload.timestamp
+      });
+      
+    } catch (redisError) {
+      logger.error(`Redis publish failed for mission command ${commandType}:`, redisError);
+      
+      // Mission commands are critical - return error if Redis fails
+      return res.status(500).json({
+        success: false,
+        message: 'Mission command failed - real-time delivery unavailable',
+        error: 'Redis connection failed'
+      });
+    }
     
   } catch (error) {
     logger.error(`Mission command error: ${error}`);
