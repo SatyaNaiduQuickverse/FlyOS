@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/app.ts - UPDATED WITH MISSION HANDLER
+// services/drone-connection-service/src/app.ts - UPDATED WITH CAMERA HANDLER
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -7,6 +7,7 @@ import { Server } from 'socket.io';
 import { setupDroneHandler } from './droneHandler';
 import { setupCommandHandler } from './commandHandler';
 import { setupMissionHandler } from './missionHandler';
+import { setupCameraHandler, setupCameraAPI } from './cameraHandler'; // ADD THIS
 import { initRedis } from './redis';
 import { logger } from './utils/logger';
 import { cleanupOldMissions } from './missionStorage';
@@ -36,7 +37,7 @@ app.get('/health', (req, res) => {
     service: 'drone-connection-service',
     timestamp: new Date().toISOString(),
     connectedDrones: Object.keys(global.connectedDrones || {}).length,
-    features: ['telemetry', 'commands', 'waypoint-missions']
+    features: ['telemetry', 'commands', 'waypoint-missions', 'camera-streaming'] // ADD camera-streaming
   });
 });
 
@@ -127,6 +128,14 @@ const startServer = async () => {
     setupMissionHandler(io);
     logger.info('✅ Mission handler configured');
     
+    // ADD: Setup camera handler for video streaming
+    setupCameraHandler(io);
+    logger.info('✅ Camera handler configured');
+    
+    // ADD: Setup camera API endpoints
+    setupCameraAPI(app);
+    logger.info('✅ Camera API configured');
+    
     // Global connected drones registry
     global.connectedDrones = {};
     
@@ -147,6 +156,7 @@ const startServer = async () => {
       logger.info(`🗺️ Mission endpoint: http://localhost:${PORT}/missions/:droneId`);
       logger.info(`🎮 Command channels: drone:*:commands`);
       logger.info(`✈️ Mission commands: upload_waypoints, start_mission, cancel_mission, clear_waypoints`);
+      logger.info(`📹 Camera endpoints: http://localhost:${PORT}/camera/*`); // ADD THIS
     });
     
   } catch (error) {

@@ -1,4 +1,4 @@
-// services/realtime-service/src/redis.ts
+// services/realtime-service/src/redis.ts - UPDATED WITH CAMERA STREAMING
 import Redis from 'ioredis';
 import { logger } from './utils/logger';
 
@@ -99,4 +99,77 @@ const subscribeToDroneUpdates = (droneId: string, callback: (data: any) => void)
   };
 };
 
-export { initRedis, redisClient, redisPubSub, getDroneState, subscribeToDroneUpdates };
+// ADD: Subscribe to camera stream updates
+const subscribeToCameraStream = (droneId: string, camera: string, callback: (data: any) => void) => {
+  const streamChannel = `camera:${droneId}:${camera}:stream`;
+  const controlChannel = `camera:${droneId}:${camera}:control`;
+  
+  // Subscribe to both stream and control channels
+  redisPubSub.subscribe(streamChannel);
+  redisPubSub.subscribe(controlChannel);
+  
+  const messageHandler = (channel: string, message: string) => {
+    if (channel === streamChannel || channel === controlChannel) {
+      try {
+        const data = JSON.parse(message);
+        
+        // Add realtime service timestamp
+        const enhancedData = {
+          ...data,
+          _meta: {
+            ...(data._meta || {}),
+            realtimeServiceTimestamp: Date.now()
+          }
+        };
+        
+        callback(enhancedData);
+        logger.debug(`Camera message received from ${channel}`);
+      } catch (error) {
+        logger.error(`Error parsing camera message from ${channel}:`, error);
+      }
+    }
+  };
+  
+  redisPubSub.on('message', messageHandler);
+  
+  // Return unsubscribe function
+  return () => {
+    redisPubSub.unsubscribe(streamChannel);
+    redisPubSub.unsubscribe(controlChannel);
+    redisPubSub.off('message', messageHandler);
+    logger.debug(`Unsubscribed from camera ${droneId}:${camera}`);
+  };
+};
+
+// ADD: Get latest camera frame
+const getLatestCameraFrame = async (droneId: string, camera: string) => {
+  try {
+    const data = await redisClient.get(`camera:${droneId}:${camera}:latest`);
+    return data ? JSON.parse(data) : null;
+  } catch (error) {
+    logger.error(`Failed to get camera frame for ${droneId}:${camera}:`, error);
+    return null;
+  }
+};
+
+// ADD: Get camera status
+const getCameraStatus = async (droneId: string, camera: string) => {
+  try {
+    const data = await redisClient.get(`camera:${droneId}:${camera}:status`);
+    return data ? JSON.parse(data) : null;
+  } catch (error) {
+    logger.error(`Failed to get camera status for ${droneId}:${camera}:`, error);
+    return null;
+  }
+};
+
+export { 
+  initRedis, 
+  redisClient, 
+  redisPubSub, 
+  getDroneState, 
+  subscribeToDroneUpdates,
+  subscribeToCameraStream,
+  getLatestCameraFrame,
+  getCameraStatus
+};

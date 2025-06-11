@@ -1,4 +1,4 @@
-// services/realtime-service/src/websocket.ts - COMPREHENSIVE FIX
+// services/realtime-service/src/websocket.ts - UPDATED WITH CAMERA STREAMING
 import { Server, Socket } from 'socket.io';
 import { ExtendedError } from 'socket.io/dist/namespace';
 import { subscribeToDroneUpdates, getDroneState } from './redis';
@@ -256,6 +256,105 @@ export const setupWebSocketServer = (io: Server) => {
         logger.error(`Error unsubscribing from drone ${droneId}: ${error.message}`);
       }
     });
+
+    // ADD: Camera stream subscription handler
+    authenticatedSocket.on('subscribe_camera_stream', async (data: { droneId: string; camera: string; channels: string[] }) => {
+      try {
+        const { droneId, camera, channels } = data;
+        
+        logger.info(`Camera stream subscription: ${droneId}:${camera}`);
+        
+        // Subscribe to each camera channel
+        for (const channel of channels) {
+          const channelKey = `${channel}:${authenticatedSocket.id}`;
+          
+          const unsubscribe = subscribeToDroneUpdates(droneId, (streamData) => {
+            if (channel.includes('stream')) {
+              // Emit camera frame data
+              authenticatedSocket.emit('camera_frame', {
+                droneId: streamData.droneId,
+                camera: streamData.camera,
+                frame: streamData.frame,
+                timestamp: streamData.timestamp,
+                metadata: streamData.metadata
+              });
+            } else if (channel.includes('control')) {
+              // Emit camera control messages
+              authenticatedSocket.emit('camera_control', {
+                droneId: streamData.droneId,
+                camera: streamData.camera,
+                action: streamData.action,
+                timestamp: streamData.timestamp
+              });
+            }
+          });
+          
+          // Store unsubscribe function with channel key
+          authenticatedSocket.droneSubscriptions.set(channelKey, unsubscribe);
+        }
+        
+        authenticatedSocket.emit('camera_subscription_status', { 
+          droneId, 
+          camera, 
+          status: 'subscribed',
+          timestamp: Date.now()
+        });
+        
+        logger.info(`Client ${authenticatedSocket.id} subscribed to camera ${droneId}:${camera}`);
+        
+      } catch (error: any) {
+        logger.error(`Camera subscription error: ${error.message}`);
+        authenticatedSocket.emit('camera_subscription_error', { 
+          droneId: data.droneId, 
+          camera: data.camera, 
+          error: error.message,
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    // ADD: Camera stream unsubscribe handler
+    authenticatedSocket.on('unsubscribe_camera_stream', (data: { droneId: string; camera: string }) => {
+      try {
+        const { droneId, camera } = data;
+        const pattern = `camera:${droneId}:${camera}`;
+        
+        // Find and remove all camera subscriptions for this drone/camera
+        for (const [key, unsubscribe] of authenticatedSocket.droneSubscriptions.entries()) {
+          if (key.includes(pattern)) {
+            unsubscribe();
+            authenticatedSocket.droneSubscriptions.delete(key);
+          }
+        }
+        
+        authenticatedSocket.emit('camera_subscription_status', { 
+          droneId, 
+          camera, 
+          status: 'unsubscribed',
+          timestamp: Date.now()
+        });
+        
+        logger.info(`Client ${authenticatedSocket.id} unsubscribed from camera ${droneId}:${camera}`);
+        
+      } catch (error: any) {
+        logger.error(`Camera unsubscribe error: ${error.message}`);
+      }
+    });
+
+    // ADD: Camera subscriber management
+    authenticatedSocket.on('camera_subscriber_added', (data: { droneId: string; camera: string; subscriberId: string }) => {
+      logger.info(`Camera subscriber added: ${data.subscriberId} for ${data.droneId}:${data.camera}`);
+    });
+
+    authenticatedSocket.on('camera_subscriber_removed', (data: { droneId: string; camera: string; subscriberId: string }) => {
+      logger.info(`Camera subscriber removed: ${data.subscriberId} for ${data.droneId}:${data.camera}`);
+    });
+
+    // ADD: Camera config change handler
+    authenticatedSocket.on('camera_config_change', (data: { droneId: string; camera: string; config: any }) => {
+      logger.info(`Camera config change requested for ${data.droneId}:${data.camera}:`, data.config);
+      // This would typically forward the config change to the drone-connection-service
+    });
     
     // Enhanced ping/pong handler for latency measurement
     authenticatedSocket.on('ping', (data: any) => {
@@ -288,12 +387,12 @@ export const setupWebSocketServer = (io: Server) => {
         // Clean up all subscriptions
         const subscriptionCount = authenticatedSocket.droneSubscriptions.size;
         
-        for (const [droneId, unsubscribe] of authenticatedSocket.droneSubscriptions.entries()) {
+        for (const [key, unsubscribe] of authenticatedSocket.droneSubscriptions.entries()) {
           try {
             unsubscribe();
-            logger.debug(`Cleaned up subscription for drone ${droneId}`);
+            logger.debug(`Cleaned up subscription: ${key}`);
           } catch (cleanupError: any) {
-            logger.error(`Error cleaning up subscription for drone ${droneId}: ${cleanupError.message}`);
+            logger.error(`Error cleaning up subscription ${key}: ${cleanupError.message}`);
           }
         }
         
@@ -322,6 +421,6 @@ export const setupWebSocketServer = (io: Server) => {
     logger.error('WebSocket server connection error:', err);
   });
   
-  logger.info('WebSocket server configured successfully');
+  logger.info('WebSocket server configured successfully with camera streaming support');
   return io;
 };
