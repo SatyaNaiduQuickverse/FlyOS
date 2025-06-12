@@ -34,7 +34,9 @@ class SocketClient {
       return; // Already connected
     }
     
-    const socketUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4002';
+    // FIXED: Use secure routing through port 3001
+    const socketUrl = process.env.NEXT_PUBLIC_WS_URL || 
+      (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
     
     this.socket = io(socketUrl, {
       auth: { token },

@@ -117,7 +117,12 @@ export function useDroneState({
     // Try WebSocket connection
     const connectWebSocket = () => {
       try {
-        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4002';
+        // FIXED: Use secure routing through port 3001
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 
+          (typeof window !== 'undefined' ? 
+            `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}` : 
+            'ws://localhost:3001');
+            
         console.log(`Attempting WebSocket connection to: ${wsUrl}`);
         
         const newSocket = io(wsUrl, {

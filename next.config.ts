@@ -20,7 +20,22 @@ const nextConfig = {
         source: '/api/drones/:path*',
         destination: 'http://drone-db-service:4001/api/drones/:path*', // proxy to drone DB service
       },
+      // ADD: WebSocket proxy for secure routing
+      {
+        source: '/socket.io/:path*',
+        destination: 'http://realtime-service:4002/socket.io/:path*',
+      },
     ];
+  },
+  webpack: (config) => {
+    // Ensure client-side compatibility
+    config.resolve.fallback = { 
+      ...config.resolve.fallback,
+      fs: false, 
+      net: false, 
+      tls: false 
+    };
+    return config;
   },
 };
 

@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
-const REALTIME_SERVICE_URL = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:4002";
+// FIXED: Use secure routing through port 3001
+const REALTIME_SERVICE_URL = process.env.NEXT_PUBLIC_WS_URL || 
+  (typeof window !== 'undefined' ? window.location.origin : "http://localhost:3001");
 
 export const useCameraStream = (droneId: string, camera: "front" | "bottom") => {
   const [state, setState] = useState({
@@ -18,7 +20,7 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
 
   const getAuthToken = () => {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem("token") || 
+    return localStorage.getItem("flyos_token") || 
            localStorage.getItem("auth_token") ||
            sessionStorage.getItem("token");
   };

@@ -92,7 +92,12 @@ const MAVROSMonitor: React.FC<MAVROSMonitorProps> = ({ droneId, className = '' }
 
     const connectWebSocket = () => {
       try {
-        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4002';
+        // FIXED: Use secure routing through port 3001
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 
+          (typeof window !== 'undefined' ? 
+            `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}` : 
+            'ws://localhost:3001');
+            
         ws = new WebSocket(`${wsUrl}?token=${token}`);
         
         ws.onopen = () => {

@@ -183,7 +183,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Real-time Service - Enhanced for Camera Streaming
   realtime-service:
     build:
       context: ./services/realtime-service
@@ -200,11 +199,11 @@ services:
       - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
       - LOG_LEVEL=info
       - DISABLE_AUTH=true
-      # Camera streaming configuration
       - CAMERA_BUFFER_SIZE=50
       - CAMERA_FRAME_TIMEOUT=3000
-    ports:
-      - "4002:4002"  # WebSocket server for real-time data and camera streams
+    # REMOVED: External port exposure for security
+    # ports:
+    #   - "4002:4002"
     networks:
       - flyos-network
     restart: unless-stopped
