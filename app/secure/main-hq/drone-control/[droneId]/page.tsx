@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - UPDATED WITH BATTERY COMPONENT
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - COMPLETE WITH MAVROS IN TELEMETRY
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../../../../lib/auth';
 import { useDroneState } from '../../../../../lib/hooks/useDroneState';
 
-// Import ALL components including the new Battery component
+// Import ALL components including the new MAVROS component
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
 import DetailedTelemetry from '../../../../../components/DroneControl/DetailedTelemetry';
@@ -24,7 +24,8 @@ import DronePayload from '../../../../../components/DroneControl/DronePayload';
 import DroneMap from '../../../../../components/DroneControl/DroneMap';
 import ParameterManager from '../../../../../components/ParameterManager';
 import MissionPlanner from '../../../../../components/MissionPlanner';
-import DroneBattery from '../../../../../components/DroneControl/DroneBattery'; // NEW IMPORT
+import DroneBattery from '../../../../../components/DroneControl/DroneBattery';
+import MAVROSMonitor from '../../../../../components/DroneControl/MAVROSMonitor'; // NEW IMPORT
 
 export default function DroneControlPage() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function DroneControlPage() {
   
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Use the fixed WebSocket-enabled hook
+  // Use the existing WebSocket-enabled hook (no changes needed)
   const { 
     drone, 
     isLoading, 
@@ -375,11 +376,24 @@ export default function DroneControlPage() {
           </div>
         )}
         
-        {/* TELEMETRY TAB - UPDATED WITH INTEGRATED BATTERY COMPONENT */}
+        {/* TELEMETRY TAB - WITH INTEGRATED BATTERY AND MAVROS COMPONENTS */}
         {activeTab === 'telemetry' && (
           <div className="space-y-6">
+            {/* Detailed Telemetry */}
             <DetailedTelemetry droneId={droneId as string} token={token} />
-            <DroneBattery />
+            
+            {/* Grid Layout: Battery and MAVROS side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Battery Component */}
+              <div className="lg:col-span-1">
+                <DroneBattery />
+              </div>
+              
+              {/* NEW: MAVROS Monitor Component */}
+              <div className="lg:col-span-1">
+                <MAVROSMonitor droneId={droneId as string} />
+              </div>
+            </div>
           </div>
         )}
         
