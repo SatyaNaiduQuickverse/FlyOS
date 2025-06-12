@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - COMPLETE WITH ALL TOKEN FIXES
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - UPDATED WITH BATTERY COMPONENT
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../../../../lib/auth';
 import { useDroneState } from '../../../../../lib/hooks/useDroneState';
 
-// Import ALL components
+// Import ALL components including the new Battery component
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
 import DetailedTelemetry from '../../../../../components/DroneControl/DetailedTelemetry';
@@ -24,12 +24,13 @@ import DronePayload from '../../../../../components/DroneControl/DronePayload';
 import DroneMap from '../../../../../components/DroneControl/DroneMap';
 import ParameterManager from '../../../../../components/ParameterManager';
 import MissionPlanner from '../../../../../components/MissionPlanner';
+import DroneBattery from '../../../../../components/DroneControl/DroneBattery'; // NEW IMPORT
 
 export default function DroneControlPage() {
   const router = useRouter();
   const params = useParams();
   const { droneId } = params;
-  const { token } = useAuth(); // GET TOKEN FROM AUTH HOOK
+  const { token } = useAuth();
   
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -363,8 +364,8 @@ export default function DroneControlPage() {
               {/* Payload */}
               <DronePayload />
 
-              {/* PWM Control - FIXED: Pass token */}
-              <DronePWMControl token={token} />
+              {/* PWM Control */}
+              <DronePWMControl />
 
               {/* Waypoint */}
               <div className="flex justify-center">
@@ -374,9 +375,12 @@ export default function DroneControlPage() {
           </div>
         )}
         
-        {/* TELEMETRY TAB */}
+        {/* TELEMETRY TAB - UPDATED WITH INTEGRATED BATTERY COMPONENT */}
         {activeTab === 'telemetry' && (
-          <DetailedTelemetry droneId={droneId as string} token={token} />
+          <div className="space-y-6">
+            <DetailedTelemetry droneId={droneId as string} token={token} />
+            <DroneBattery />
+          </div>
         )}
         
         {/* PARAMS TAB */}
@@ -399,4 +403,3 @@ export default function DroneControlPage() {
     </div>
   );
 }
-            

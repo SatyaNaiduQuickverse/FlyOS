@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/app.ts - UPDATED WITH CAMERA HANDLER
+// services/drone-connection-service/src/app.ts - UPDATED WITH MAVROS HANDLER
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -7,7 +7,8 @@ import { Server } from 'socket.io';
 import { setupDroneHandler } from './droneHandler';
 import { setupCommandHandler } from './commandHandler';
 import { setupMissionHandler } from './missionHandler';
-import { setupCameraHandler, setupCameraAPI } from './cameraHandler'; // ADD THIS
+import { setupCameraHandler, setupCameraAPI } from './cameraHandler';
+import { setupMAVROSHandler } from './mavrosHandler'; // NEW IMPORT
 import { initRedis } from './redis';
 import { logger } from './utils/logger';
 import { cleanupOldMissions } from './missionStorage';
@@ -37,7 +38,13 @@ app.get('/health', (req, res) => {
     service: 'drone-connection-service',
     timestamp: new Date().toISOString(),
     connectedDrones: Object.keys(global.connectedDrones || {}).length,
-    features: ['telemetry', 'commands', 'waypoint-missions', 'camera-streaming'] // ADD camera-streaming
+    features: [
+      'telemetry', 
+      'commands', 
+      'waypoint-missions', 
+      'camera-streaming',
+      'mavros-logging' // NEW FEATURE
+    ]
   });
 });
 
@@ -69,6 +76,39 @@ app.get('/redis/:droneId', async (req, res) => {
     logger.error(`Error getting drone state for ${req.params.droneId}:`, error);
     res.status(500).json({ 
       error: 'Failed to get drone state',
+      id: req.params.droneId 
+    });
+  }
+});
+
+// NEW: MAVROS buffer endpoint
+app.get('/mavros/:droneId/buffer', async (req, res) => {
+  try {
+    const droneId = req.params.droneId;
+    const count = parseInt(req.query.count as string) || 100;
+    const { redisClient } = await import('./redis');
+    
+    const bufferKey = `mavros:${droneId}:buffer`;
+    const messages = await redisClient.lrange(bufferKey, 0, count - 1);
+    
+    const parsedMessages = messages.map(msg => {
+      try {
+        return JSON.parse(msg);
+      } catch {
+        return { message: msg, timestamp: new Date().toISOString() };
+      }
+    });
+    
+    res.json({
+      droneId,
+      messages: parsedMessages,
+      count: parsedMessages.length
+    });
+    
+  } catch (error) {
+    logger.error(`Error getting MAVROS buffer for ${req.params.droneId}:`, error);
+    res.status(500).json({ 
+      error: 'Failed to get MAVROS buffer',
       id: req.params.droneId 
     });
   }
@@ -110,7 +150,7 @@ const io = new Server(server, {
 
 const startServer = async () => {
   try {
-    logger.info('🚀 Starting Enhanced Drone Connection Service...');
+    logger.info('🚀 Starting Enhanced Drone Connection Service with MAVROS...');
     
     // Initialize Redis connection
     await initRedis();
@@ -128,13 +168,17 @@ const startServer = async () => {
     setupMissionHandler(io);
     logger.info('✅ Mission handler configured');
     
-    // ADD: Setup camera handler for video streaming
+    // Setup camera handler for video streaming
     setupCameraHandler(io);
     logger.info('✅ Camera handler configured');
     
-    // ADD: Setup camera API endpoints
+    // Setup camera API endpoints
     setupCameraAPI(app);
     logger.info('✅ Camera API configured');
+    
+    // NEW: Setup MAVROS handler for message logging
+    setupMAVROSHandler(io);
+    logger.info('✅ MAVROS handler configured');
     
     // Global connected drones registry
     global.connectedDrones = {};
@@ -156,7 +200,9 @@ const startServer = async () => {
       logger.info(`🗺️ Mission endpoint: http://localhost:${PORT}/missions/:droneId`);
       logger.info(`🎮 Command channels: drone:*:commands`);
       logger.info(`✈️ Mission commands: upload_waypoints, start_mission, cancel_mission, clear_waypoints`);
-      logger.info(`📹 Camera endpoints: http://localhost:${PORT}/camera/*`); // ADD THIS
+      logger.info(`📹 Camera endpoints: http://localhost:${PORT}/camera/*`);
+      logger.info(`📝 MAVROS endpoints: http://localhost:${PORT}/mavros/:droneId/*`); // NEW
+      logger.info(`🎯 MAVROS channels: mavros:*:output, mavros:*:session`); // NEW
     });
     
   } catch (error) {

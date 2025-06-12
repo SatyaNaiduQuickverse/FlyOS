@@ -31,7 +31,9 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
       
       const token = getAuthToken();
       if (!token) {
-        throw new Error("No authentication token available");
+        console.warn("No authentication token available for camera stream");
+        setState(prev => ({ ...prev, streamStatus: "error" }));
+        return;
       }
 
       const socket = io(REALTIME_SERVICE_URL, {
@@ -45,6 +47,7 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
       });
 
       socket.on("connect", () => {
+        console.log(`Camera stream connected for ${droneId}:${camera}`);
         setState(prev => ({ 
           ...prev, 
           isConnected: true, 
@@ -82,6 +85,12 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
         }
       });
 
+      socket.on("camera_control", (data: any) => {
+        if (data.droneId === droneId && data.camera === camera) {
+          console.log(`Camera control message:`, data);
+        }
+      });
+
       socketRef.current = socket;
 
     } catch (error) {
@@ -103,8 +112,27 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
   return {
     ...state,
     reconnect: initializeConnection,
-    addSubscriber: () => {},
-    removeSubscriber: () => {},
-    changeStreamConfig: () => {}
+    addSubscriber: (id: string) => {
+      setState(prev => ({
+        ...prev,
+        subscribers: new Set([...prev.subscribers, id])
+      }));
+    },
+    removeSubscriber: (id: string) => {
+      setState(prev => {
+        const newSubscribers = new Set(prev.subscribers);
+        newSubscribers.delete(id);
+        return { ...prev, subscribers: newSubscribers };
+      });
+    },
+    changeStreamConfig: (config: any) => {
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('camera_config_change', {
+          droneId,
+          camera,
+          config
+        });
+      }
+    }
   };
 };

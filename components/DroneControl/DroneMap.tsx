@@ -1,7 +1,7 @@
 // components/DroneControl/DroneMap.tsx - CONNECTED TO LIVE REDIS DATA
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { Globe, Maximize2, Eye, MapPin, Layers, X } from 'lucide-react';
+import { Globe, Maximize2, Minimize2, Eye, MapPin, Layers, X } from 'lucide-react';
 import { waypointStore } from '../../utils/waypointStore';
 import type { Waypoint } from '../../utils/waypointStore';
 import { useParams } from 'next/navigation';
@@ -70,6 +70,8 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
   const [mapZoom, setMapZoom] = useState(18);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedMapType, setSelectedMapType] = useState<MapType>(MapType.OSM);
+  const [autoFollow, setAutoFollow] = useState(false); // NEW: Control auto-follow behavior
+  const [shouldUpdateMap, setShouldUpdateMap] = useState(false); // Track when to update map
   
   const maxPathPoints = 50;
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -101,12 +103,17 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
       if (data && data.latitude && data.longitude) {
         setLiveTelemetry(data);
         
-        // Update map center to drone position
-        const newPosition: [number, number] = [data.latitude, data.longitude];
-        setMapCenter(newPosition);
+        // Only update map center if auto-follow is enabled
+        if (autoFollow) {
+          const newPosition: [number, number] = [data.latitude, data.longitude];
+          setMapCenter(newPosition);
+          setMapZoom(17); // Set consistent zoom level for auto-follow
+          setShouldUpdateMap(true);
+        }
         
         // Update path history if position changed significantly
         setPathHistory(prev => {
+          const newPosition: [number, number] = [data.latitude, data.longitude];
           const lastPosition = prev[prev.length - 1];
           if (lastPosition) {
             const distance = Math.abs(lastPosition[0] - newPosition[0]) + Math.abs(lastPosition[1] - newPosition[1]);
@@ -136,9 +143,9 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
       const interval = setInterval(fetchTelemetry, 2000); // Poll every 2 seconds
       return () => clearInterval(interval);
     }
-  }, [droneId]);
+  }, [droneId, autoFollow]);
   
-  // OPTIMIZATION: Throttled update function
+  // OPTIMIZATION: Throttled update function (removed auto-centering)
   const throttledUpdateTelemetry = useCallback((newData: any) => {
     if (updateTimeoutRef.current) {
       clearTimeout(updateTimeoutRef.current);
@@ -146,11 +153,9 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
     
     updateTimeoutRef.current = setTimeout(() => {
       if (newData.latitude && newData.longitude) {
-        const newPosition: [number, number] = [newData.latitude, newData.longitude];
-        setMapCenter(newPosition);
-        
-        // Update path history
+        // Only update path history, don't auto-center map
         setPathHistory(prev => {
+          const newPosition: [number, number] = [newData.latitude, newData.longitude];
           const lastPosition = prev[prev.length - 1];
           if (lastPosition) {
             const distance = Math.abs(lastPosition[0] - newPosition[0]) + Math.abs(lastPosition[1] - newPosition[1]);
@@ -259,7 +264,8 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
   const handleDroneZoom = useCallback(() => {
     if (dronePosition[0] !== 0 && dronePosition[1] !== 0) {
       setMapCenter(dronePosition);
-      setMapZoom(19);
+      setMapZoom(17); // Same zoom level as auto-follow
+      setShouldUpdateMap(true); // Trigger one-time update
     }
   }, [dronePosition]);
 
@@ -282,6 +288,7 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
     waypointStore.setWaypoints([]);
   }, []);
 
+  // NEW: Fullscreen toggle function
   const toggleFullscreen = useCallback(() => {
     if (!isFullscreen) {
       if (mapContainerRef.current?.requestFullscreen) {
@@ -293,6 +300,11 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
       }
     }
   }, [isFullscreen]);
+
+  // NEW: Auto-follow toggle
+  const toggleAutoFollow = useCallback(() => {
+    setAutoFollow(prev => !prev);
+  }, []);
 
   // Handle waypoint store updates
   useEffect(() => {
@@ -364,15 +376,16 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
   // Extract components from ReactLeaflet
   const { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } = ReactLeaflet;
 
-  // Create MapUpdater component with optimization
-  const MapUpdater = React.memo(({ center, zoom }: { center: [number, number]; zoom: number }) => {
+  // Create MapUpdater component - only updates when shouldUpdateMap is true
+  const MapUpdater = React.memo(({ center, zoom, shouldUpdate }: { center: [number, number]; zoom: number; shouldUpdate: boolean }) => {
     const map = useMap();
 
     useEffect(() => {
-      if (center[0] !== 0 && center[1] !== 0) {
+      if (center[0] !== 0 && center[1] !== 0 && shouldUpdate) {
         map.flyTo(center, zoom, { duration: 1 });
+        setShouldUpdateMap(false); // Reset flag after update
       }
-    }, [center, zoom, map]);
+    }, [center, zoom, map, shouldUpdate]);
 
     return null;
   });
@@ -410,6 +423,17 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           {error || telemetryError}
         </div>
       )}
+
+      {/* NEW: Fullscreen button */}
+      <div className="absolute top-4 right-4 z-[1001] flex gap-2">
+        <button
+          onClick={toggleFullscreen}
+          className="bg-gray-800/90 hover:bg-gray-700/90 text-gray-300 p-2 rounded-lg shadow border border-gray-700 transition-colors"
+          title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+        >
+          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
+      </div>
 
       {/* Map type selector */}
       <div className="absolute top-4 left-4 z-[1000] flex gap-2 rounded-md overflow-hidden shadow-lg border border-gray-800/50">
@@ -514,8 +538,8 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           />
         )}
 
-        {/* Map updater */}
-        <MapUpdater center={mapCenter} zoom={mapZoom} />
+        {/* Map updater - controlled by shouldUpdateMap flag */}
+        <MapUpdater center={mapCenter} zoom={mapZoom} shouldUpdate={shouldUpdateMap} />
       </MapContainer>
 
       {/* Controls Panel */}
@@ -539,6 +563,22 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
           >
             <Eye className="h-4 w-4" />
             CENTER ON DRONE
+          </button>
+
+          {/* NEW: Auto-follow toggle button */}
+          <button
+            onClick={toggleAutoFollow}
+            disabled={dronePosition[0] === 0}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-light transition-colors ${
+              autoFollow
+                ? 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30'
+                : dronePosition[0] !== 0
+                  ? 'bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 border border-gray-700'
+                  : 'bg-gray-700/50 text-gray-500 cursor-not-allowed border border-gray-700'
+            }`}
+          >
+            <Eye className="h-4 w-4" />
+            {autoFollow ? 'FOLLOWING' : 'AUTO FOLLOW'}
           </button>
           
           <button
@@ -576,8 +616,8 @@ const DroneMapClient: React.FC<DroneMapProps> = React.memo(({ className = '' }) 
         </div>
       </div>
 
-      {/* Status Panel - LIVE DATA */}
-      <div className="absolute top-4 right-4 z-[1000] bg-gray-800/90 p-3 rounded-lg shadow border border-gray-700">
+      {/* Status Panel - LIVE DATA (moved down to avoid overlap with fullscreen button) */}
+      <div className="absolute top-16 right-4 z-[1000] bg-gray-800/90 p-3 rounded-lg shadow border border-gray-700">
         <div className="flex items-center gap-2 mb-2">
           <div className={`w-2 h-2 rounded-full ${liveTelemetry?.connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           <span className="text-sm font-light text-gray-300">

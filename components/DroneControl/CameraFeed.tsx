@@ -1,4 +1,4 @@
-// components/DroneControl/CameraFeed.tsx - Updated with Stream Integration
+// components/DroneControl/CameraFeed.tsx - Working Implementation
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Eye, Maximize2, SplitSquareVertical, PictureInPicture, Download, ZoomIn, ZoomOut, Layers, Wifi, WifiOff } from 'lucide-react';
 import { useCameraStream } from '../../lib/hooks/useCameraStream';
@@ -85,10 +85,13 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ drone, isControlEnabled }) => {
           <div className="text-gray-400 text-center">
             <Camera className="h-12 w-12 mx-auto mb-2 opacity-50" />
             <div>
-              {status === 'connecting' && 'Connecting...'}
-              {status === 'inactive' && 'Camera Offline'}
-              {status === 'error' && 'Connection Error'}
-              {!stream.currentFrame && status === 'active' && 'Waiting for frames...'}
+              {status === 'connecting' && 'Connecting to camera...'}
+              {status === 'inactive' && 'Camera stream inactive'}
+              {status === 'error' && 'Camera connection error'}
+              {!stream.currentFrame && status === 'active' && 'Waiting for camera frames...'}
+            </div>
+            <div className="text-xs mt-2 text-gray-500">
+              {camera === 'front' ? 'Front Camera' : 'Bottom Camera'}
             </div>
           </div>
         )}
@@ -128,7 +131,10 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ drone, isControlEnabled }) => {
         {/* Controls overlay */}
         {isControlEnabled && stream.currentFrame && (
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
-            <button className="p-1.5 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors">
+            <button 
+              className="p-1.5 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors"
+              onClick={() => console.log('Show camera layers')}
+            >
               <Layers className="h-4 w-4" />
             </button>
             <button 
@@ -145,10 +151,16 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ drone, isControlEnabled }) => {
             >
               <ZoomIn className="h-4 w-4" />
             </button>
-            <button className="p-1.5 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors">
+            <button 
+              className="p-1.5 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors"
+              onClick={() => console.log('Download frame')}
+            >
               <Download className="h-4 w-4" />
             </button>
-            <button className="p-1.5 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors">
+            <button 
+              className="p-1.5 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors"
+              onClick={() => console.log('Fullscreen')}
+            >
               <Maximize2 className="h-4 w-4" />
             </button>
           </div>
