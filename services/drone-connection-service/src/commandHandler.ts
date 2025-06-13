@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/commandHandler.ts - FIXED TYPESCRIPT ERRORS
+// services/drone-connection-service/src/commandHandler.ts - EXTENDED WITH PRECISION LANDING
 import { Server } from 'socket.io';
 import { redisClient } from './redis';
 import { logger } from './utils/logger';
@@ -29,13 +29,24 @@ export const setupCommandHandler = (io: Server) => {
         userId: command.userId
       });
       
-      // Find the drone's socket connection
+      // Handle precision landing commands specially
+      if (command.commandType === 'precision_land') {
+        await handlePrecisionLandCommand(io, droneId, command, 'start');
+        return;
+      }
+      
+      if (command.commandType === 'abort_precision_land') {
+        await handlePrecisionLandCommand(io, droneId, command, 'abort');
+        return;
+      }
+      
+      // Handle all other commands with existing logic
       const droneConnection = global.connectedDrones[droneId];
       
       if (!droneConnection) {
         logger.warn(`⚠️ Drone ${droneId} not connected, command ignored`);
         
-        // Optionally publish command failure back to Redis
+        // Publish command failure back to Redis
         await redisClient.publish(
           `drone:${droneId}:command_responses`,
           JSON.stringify({
@@ -96,4 +107,95 @@ export const setupCommandHandler = (io: Server) => {
     subscriber.quit();
     logger.info('🧹 Command handler cleaned up');
   };
+};
+
+// Handle precision landing commands
+const handlePrecisionLandCommand = async (
+  io: Server, 
+  droneId: string, 
+  command: any, 
+  action: 'start' | 'abort'
+) => {
+  try {
+    logger.info(`🎯 Precision landing ${action} command for ${droneId}`);
+    
+    const droneConnection = global.connectedDrones[droneId];
+    if (!droneConnection) {
+      await publishCommandResponse(droneId, command.id, false, 'Drone not connected');
+      return;
+    }
+    
+    const socket = io.sockets.sockets.get(droneConnection.socketId);
+    if (!socket) {
+      await publishCommandResponse(droneId, command.id, false, 'Socket not found');
+      return;
+    }
+    
+    // Send precision landing command to drone
+    socket.emit('precision_landing_command', {
+      id: command.id,
+      action: action,
+      parameters: command.parameters || {},
+      timestamp: new Date().toISOString(),
+      userId: command.userId
+    });
+    
+    // Store session info in Redis for start command
+    if (action === 'start') {
+      await redisClient.setex(
+        `precision_landing:${droneId}:session`,
+        1800, // 30 minutes
+        JSON.stringify({
+          sessionId: command.id,
+          droneId: droneId,
+          startedAt: new Date().toISOString(),
+          status: 'ACTIVE',
+          userId: command.userId,
+          parameters: command.parameters || {}
+        })
+      );
+      
+      // Clear any existing output buffer
+      await redisClient.del(`precision_landing:${droneId}:buffer`);
+    }
+    
+    logger.info(`✅ Precision landing ${action} command sent to ${droneId}`);
+    await publishCommandResponse(
+      droneId, 
+      command.id, 
+      true, 
+      `Precision landing ${action} command sent successfully`
+    );
+    
+  } catch (error) {
+    logger.error(`❌ Error executing precision landing ${action} for ${droneId}:`, error);
+    await publishCommandResponse(
+      droneId, 
+      command.id, 
+      false, 
+      error instanceof Error ? error.message : 'Unknown error'
+    );
+  }
+};
+
+// Helper function to publish command responses
+const publishCommandResponse = async (
+  droneId: string, 
+  commandId: any, 
+  success: boolean, 
+  message: string
+) => {
+  try {
+    await redisClient.publish(
+      `drone:${droneId}:command_responses`,
+      JSON.stringify({
+        commandId,
+        success,
+        message,
+        timestamp: new Date().toISOString()
+      })
+    );
+  } catch (error) {
+    logger.error(`Failed to publish command response for ${droneId}:`, error);
+  }
 };

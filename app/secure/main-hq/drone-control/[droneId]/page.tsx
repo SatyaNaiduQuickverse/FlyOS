@@ -26,6 +26,7 @@ import ParameterManager from '../../../../../components/ParameterManager';
 import MissionPlanner from '../../../../../components/MissionPlanner';
 import DroneBattery from '../../../../../components/DroneControl/DroneBattery';
 import MAVROSMonitor from '../../../../../components/DroneControl/MAVROSMonitor'; // NEW IMPORT
+import DronePrecisionLand from '../../../../../components/DroneControl/DronePrecisionLand';
 
 export default function DroneControlPage() {
   const router = useRouter();
@@ -355,7 +356,7 @@ export default function DroneControlPage() {
             {/* Camera Feed */}
             <CameraFeed drone={drone} isControlEnabled={isConnected} />
 
-            {/* Control Grid - 2x2 Layout */}
+            {/* Control Grid - Updated Layout */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Map */}
               <div className="h-[400px] rounded-lg overflow-hidden">
@@ -372,6 +373,11 @@ export default function DroneControlPage() {
               <div className="flex justify-center">
                 <WaypointDropbox />
               </div>
+            </div>
+
+            {/* NEW: Precision Landing - Full Width */}
+            <div className="w-full">
+              <DronePrecisionLand />
             </div>
           </div>
         )}

@@ -1,3 +1,4 @@
+// services/drone-db-service/src/services/droneService.ts - EXTENDED WITH PRECISION LANDING
 import { pool, prisma } from '../database';
 import { storeDroneState } from '../redis';
 import { logger } from '../utils/logger';
@@ -144,6 +145,136 @@ export const getCommandHistory = async (droneId: string, limit: number = 20) => 
     return result.rows;
   } catch (error) {
     logger.error(`Error getting command history: ${error}`);
+    throw error;
+  }
+};
+
+// NEW: Precision Landing Data Interface
+export interface PrecisionLandingData {
+  droneId: string;
+  sessionId: string;
+  timestamp?: string;
+  stage?: string;
+  message: string;
+  altitude?: number;
+  targetDetected?: boolean;
+  targetConfidence?: number;
+  lateralError?: number;
+  verticalError?: number;
+  batteryLevel?: number;
+  windSpeed?: number;
+  rawData?: any;
+}
+
+// NEW: Store precision landing data in TimescaleDB
+export const storePrecisionLandingData = async (data: PrecisionLandingData) => {
+  try {
+    const query = `
+      INSERT INTO precision_landing_logs (
+        drone_id, timestamp, session_id, stage, message,
+        altitude, target_detected, target_confidence,
+        lateral_error, vertical_error, battery_level, wind_speed, raw_data
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+      ) RETURNING id;
+    `;
+    
+    const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
+    
+    const values = [
+      data.droneId,
+      timestamp,
+      data.sessionId,
+      data.stage,
+      data.message,
+      data.altitude,
+      data.targetDetected,
+      data.targetConfidence,
+      data.lateralError,
+      data.verticalError,
+      data.batteryLevel,
+      data.windSpeed,
+      data.rawData ? JSON.stringify(data.rawData) : null
+    ];
+    
+    const result = await pool.query(query, values);
+    logger.debug(`🎯 Precision landing data stored: ${data.droneId} - ${data.message.substring(0, 50)}...`);
+    return { id: result.rows[0].id };
+  } catch (error) {
+    logger.error(`Error storing precision landing data: ${error}`);
+    throw error;
+  }
+};
+
+// NEW: Get precision landing history
+export const getPrecisionLandingHistory = async (
+  droneId: string,
+  startTime?: Date,
+  endTime?: Date,
+  limit: number = 100
+) => {
+  try {
+    let query = `
+      SELECT 
+        id, drone_id, timestamp, session_id, stage, message,
+        altitude, target_detected, target_confidence,
+        lateral_error, vertical_error, battery_level, wind_speed,
+        raw_data, created_at
+      FROM precision_landing_logs
+      WHERE drone_id = $1
+    `;
+    const values = [droneId];
+    
+    if (startTime && endTime) {
+      query += ` AND timestamp BETWEEN $2 AND $3`;
+      values.push(startTime, endTime);
+    }
+    
+    query += ` ORDER BY timestamp DESC LIMIT $${values.length + 1}`;
+    values.push(limit);
+    
+    const result = await pool.query(query, values);
+    
+    // Parse raw_data back to objects
+    const parsedRows = result.rows.map(row => ({
+      ...row,
+      raw_data: row.raw_data ? JSON.parse(row.raw_data) : null
+    }));
+    
+    return parsedRows;
+  } catch (error) {
+    logger.error(`Error getting precision landing history: ${error}`);
+    throw error;
+  }
+};
+
+// NEW: Get precision landing session summary
+export const getPrecisionLandingSessionSummary = async (
+  droneId: string,
+  sessionId: string
+) => {
+  try {
+    const query = `
+      SELECT 
+        session_id,
+        MIN(timestamp) as session_start,
+        MAX(timestamp) as session_end,
+        COUNT(*) as total_messages,
+        COUNT(CASE WHEN stage = 'LANDED' THEN 1 END) as successful_landing,
+        AVG(target_confidence) as avg_confidence,
+        AVG(lateral_error) as avg_lateral_error,
+        AVG(vertical_error) as avg_vertical_error,
+        MIN(altitude) as min_altitude,
+        MAX(altitude) as max_altitude
+      FROM precision_landing_logs
+      WHERE drone_id = $1 AND session_id = $2
+      GROUP BY session_id;
+    `;
+    
+    const result = await pool.query(query, [droneId, sessionId]);
+    return result.rows[0] || null;
+  } catch (error) {
+    logger.error(`Error getting precision landing session summary: ${error}`);
     throw error;
   }
 };

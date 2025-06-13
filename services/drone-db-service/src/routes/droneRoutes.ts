@@ -1,4 +1,4 @@
-// services/drone-db-service/src/routes/droneRoutes.ts - ENHANCED WITH MAVROS ENDPOINTS
+// services/drone-db-service/src/routes/droneRoutes.ts - EXTENDED WITH PRECISION LANDING
 import express from 'express';
 import { 
   getAllDronesController,
@@ -7,10 +7,13 @@ import {
   getHistoricalTelemetryController,
   sendCommandController,
   getCommandHistoryController,
-  getMissionHistoryController
+  getMissionHistoryController,
+  storePrecisionLandingController,
+  getPrecisionLandingHistoryController,
+  getPrecisionLandingSessionController
 } from '../controllers/droneController';
 
-// Import new MAVROS controllers
+// Import MAVROS controllers
 import {
   storeMAVROSMessageController,
   getMAVROSLogsController,
@@ -29,7 +32,7 @@ const router = express.Router();
 // Apply Supabase authentication to all routes
 router.use(authenticateSupabase);
 
-// Existing drone routes
+// Core drone routes
 router.get('/', getAllDronesController);
 router.get('/:droneId/state', getDroneStateController);
 router.post('/:droneId/telemetry', storeTelemetryController);
@@ -38,9 +41,12 @@ router.post('/:droneId/command', sendCommandController);
 router.get('/:droneId/commands', getCommandHistoryController);
 router.get('/:droneId/missions', getMissionHistoryController);
 
-// NEW MAVROS ROUTES
-// ================
+// NEW: Precision Landing routes
+router.post('/:droneId/precision-landing', storePrecisionLandingController);
+router.get('/:droneId/precision-landing', getPrecisionLandingHistoryController);
+router.get('/:droneId/precision-landing/session/:sessionId', getPrecisionLandingSessionController);
 
+// MAVROS ROUTES
 // Store MAVROS message (typically called by drone-connection-service)
 router.post('/:droneId/mavros/message', storeMAVROSMessageController);
 

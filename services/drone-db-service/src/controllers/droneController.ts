@@ -4,7 +4,11 @@ import {
   storeTelemetryData, 
   getHistoricalTelemetry,
   recordCommand,
-  getCommandHistory
+  getCommandHistory,
+  storePrecisionLandingData, 
+  getPrecisionLandingHistory,
+  getPrecisionLandingSessionSummary,
+  PrecisionLandingData
 } from '../services/droneService';
 import { 
   storeMissionInDB, 
@@ -502,6 +506,113 @@ export const getCommandHistoryController = async (req: Request, res: Response) =
     return res.status(500).json({ 
       success: false, 
       message: 'Server error' 
+    });
+  }
+};
+
+// NEW: Store precision landing data
+export const storePrecisionLandingController = async (req: Request, res: Response) => {
+  try {
+    const { droneId } = req.params;
+    const precisionData: PrecisionLandingData = {
+      droneId,
+      ...req.body
+    };
+    
+    // Validate required fields
+    if (!precisionData.sessionId || !precisionData.message) {
+      return res.status(400).json({
+        success: false,
+        message: 'sessionId and message are required'
+      });
+    }
+    
+    const result = await storePrecisionLandingData(precisionData);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Precision landing data stored successfully',
+      id: result.id
+    });
+  } catch (error) {
+    logger.error(`Error storing precision landing data: ${error}`);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// NEW: Get precision landing history
+export const getPrecisionLandingHistoryController = async (req: Request, res: Response) => {
+  try {
+    const { droneId } = req.params;
+    const { startTime, endTime, limit = '100' } = req.query;
+    
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+    
+    const history = await getPrecisionLandingHistory(
+      droneId,
+      startTime ? new Date(startTime as string) : undefined,
+      endTime ? new Date(endTime as string) : undefined,
+      parseInt(limit as string)
+    );
+    
+    return res.status(200).json({
+      success: true,
+      droneId,
+      data: history,
+      count: history.length
+    });
+  } catch (error) {
+    logger.error(`Error getting precision landing history: ${error}`);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// NEW: Get precision landing session summary
+export const getPrecisionLandingSessionController = async (req: Request, res: Response) => {
+  try {
+    const { droneId, sessionId } = req.params;
+    
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+    
+    const summary = await getPrecisionLandingSessionSummary(droneId, sessionId);
+    
+    if (!summary) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      droneId,
+      sessionId,
+      summary
+    });
+  } catch (error) {
+    logger.error(`Error getting precision landing session: ${error}`);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 };

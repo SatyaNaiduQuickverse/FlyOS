@@ -1,4 +1,4 @@
-// services/realtime-service/src/websocket.ts - UPDATED WITH CAMERA STREAMING
+// services/realtime-service/src/websocket.ts - UPDATED WITH CAMERA STREAMING AND PRECISION LANDING
 import { Server, Socket } from 'socket.io';
 import { ExtendedError } from 'socket.io/dist/namespace';
 import { subscribeToDroneUpdates, getDroneState } from './redis';
@@ -257,7 +257,7 @@ export const setupWebSocketServer = (io: Server) => {
       }
     });
 
-    // ADD: Camera stream subscription handler
+    // Camera stream subscription handler
     authenticatedSocket.on('subscribe_camera_stream', async (data: { droneId: string; camera: string; channels: string[] }) => {
       try {
         const { droneId, camera, channels } = data;
@@ -313,7 +313,7 @@ export const setupWebSocketServer = (io: Server) => {
       }
     });
 
-    // ADD: Camera stream unsubscribe handler
+    // Camera stream unsubscribe handler
     authenticatedSocket.on('unsubscribe_camera_stream', (data: { droneId: string; camera: string }) => {
       try {
         const { droneId, camera } = data;
@@ -341,7 +341,7 @@ export const setupWebSocketServer = (io: Server) => {
       }
     });
 
-    // ADD: Camera subscriber management
+    // Camera subscriber management
     authenticatedSocket.on('camera_subscriber_added', (data: { droneId: string; camera: string; subscriberId: string }) => {
       logger.info(`Camera subscriber added: ${data.subscriberId} for ${data.droneId}:${data.camera}`);
     });
@@ -350,10 +350,151 @@ export const setupWebSocketServer = (io: Server) => {
       logger.info(`Camera subscriber removed: ${data.subscriberId} for ${data.droneId}:${data.camera}`);
     });
 
-    // ADD: Camera config change handler
+    // Camera config change handler
     authenticatedSocket.on('camera_config_change', (data: { droneId: string; camera: string; config: any }) => {
       logger.info(`Camera config change requested for ${data.droneId}:${data.camera}:`, data.config);
       // This would typically forward the config change to the drone-connection-service
+    });
+
+    // Enhanced subscription handler with precision landing support
+    authenticatedSocket.on('subscribe', async (channel: string) => {
+      try {
+        logger.info(`Client ${authenticatedSocket.id} subscribing to channel: ${channel}`);
+        
+        // Handle precision landing output subscriptions
+        if (channel.startsWith('precision_land_output:')) {
+          const droneId = channel.split(':')[1];
+          
+          if (!droneId) {
+            authenticatedSocket.emit('error', { 
+              message: 'Invalid precision landing channel format',
+              channel,
+              timestamp: Date.now()
+            });
+            return;
+          }
+          
+          // Subscribe to Redis channel for precision landing output
+          const { redisPubSub } = await import('./redis');
+          
+          const messageHandler = (redisChannel: string, message: string) => {
+            if (redisChannel === channel) {
+              try {
+                const data = JSON.parse(message);
+                authenticatedSocket.emit('precision_land_output', data);
+              } catch (parseError) {
+                logger.error(`Error parsing precision landing message: ${parseError}`);
+              }
+            }
+          };
+          
+          redisPubSub.subscribe(channel);
+          redisPubSub.on('message', messageHandler);
+          
+          // Store cleanup function
+          const cleanupKey = `precision_output_${droneId}`;
+          authenticatedSocket.droneSubscriptions.set(cleanupKey, () => {
+            redisPubSub.unsubscribe(channel);
+            redisPubSub.off('message', messageHandler);
+          });
+          
+          authenticatedSocket.emit('subscription_status', { 
+            channel, 
+            status: 'subscribed',
+            timestamp: Date.now()
+          });
+          
+          logger.info(`Client ${authenticatedSocket.id} subscribed to precision landing output: ${droneId}`);
+        }
+        
+        // Handle precision landing status subscriptions
+        else if (channel.startsWith('precision_land_status:')) {
+          const droneId = channel.split(':')[1];
+          
+          if (!droneId) {
+            authenticatedSocket.emit('error', { 
+              message: 'Invalid precision landing status channel format',
+              channel,
+              timestamp: Date.now()
+            });
+            return;
+          }
+          
+          // Subscribe to Redis channel for precision landing status
+          const { redisPubSub } = await import('./redis');
+          
+          const statusHandler = (redisChannel: string, message: string) => {
+            if (redisChannel === channel) {
+              try {
+                const data = JSON.parse(message);
+                authenticatedSocket.emit('precision_land_status', data);
+              } catch (parseError) {
+                logger.error(`Error parsing precision landing status: ${parseError}`);
+              }
+            }
+          };
+          
+          redisPubSub.subscribe(channel);
+          redisPubSub.on('message', statusHandler);
+          
+          // Store cleanup function
+          const cleanupKey = `precision_status_${droneId}`;
+          authenticatedSocket.droneSubscriptions.set(cleanupKey, () => {
+            redisPubSub.unsubscribe(channel);
+            redisPubSub.off('message', statusHandler);
+          });
+          
+          authenticatedSocket.emit('subscription_status', { 
+            channel, 
+            status: 'subscribed',
+            timestamp: Date.now()
+          });
+          
+          logger.info(`Client ${authenticatedSocket.id} subscribed to precision landing status: ${droneId}`);
+        }
+        
+      } catch (error: any) {
+        logger.error(`Error handling subscription to ${channel}: ${error.message}`);
+        authenticatedSocket.emit('error', { 
+          message: 'Failed to subscribe to channel',
+          channel,
+          error: error.message,
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    // Add unsubscribe handler for precision landing channels
+    authenticatedSocket.on('unsubscribe', (channel: string) => {
+      try {
+        if (channel.startsWith('precision_land_output:')) {
+          const droneId = channel.split(':')[1];
+          const cleanupKey = `precision_output_${droneId}`;
+          
+          const cleanup = authenticatedSocket.droneSubscriptions.get(cleanupKey);
+          if (cleanup) {
+            cleanup();
+            authenticatedSocket.droneSubscriptions.delete(cleanupKey);
+          }
+          
+          logger.info(`Client ${authenticatedSocket.id} unsubscribed from precision landing output: ${droneId}`);
+        }
+        
+        else if (channel.startsWith('precision_land_status:')) {
+          const droneId = channel.split(':')[1];
+          const cleanupKey = `precision_status_${droneId}`;
+          
+          const cleanup = authenticatedSocket.droneSubscriptions.get(cleanupKey);
+          if (cleanup) {
+            cleanup();
+            authenticatedSocket.droneSubscriptions.delete(cleanupKey);
+          }
+          
+          logger.info(`Client ${authenticatedSocket.id} unsubscribed from precision landing status: ${droneId}`);
+        }
+      } catch (error: any) {
+        logger.error(`Error unsubscribing from ${channel}: ${error.message}`);
+      }
     });
     
     // Enhanced ping/pong handler for latency measurement
@@ -421,6 +562,6 @@ export const setupWebSocketServer = (io: Server) => {
     logger.error('WebSocket server connection error:', err);
   });
   
-  logger.info('WebSocket server configured successfully with camera streaming support');
+  logger.info('WebSocket server configured successfully with camera streaming and precision landing support');
   return io;
 };
