@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/mockData.ts - COMPLETE WITH CAMERA STREAMING
+// services/drone-connection-service/src/mockData.ts - FIXED CAMERA STREAMING
 import { io as Client } from 'socket.io-client';
 import { logger } from './utils/logger';
 
@@ -9,19 +9,20 @@ interface MockDrone {
   socket?: any;
   telemetryInterval?: NodeJS.Timeout;
   cameraInterval?: NodeJS.Timeout;
+  cameraStreamActive: Map<string, boolean>; // Track stream status per camera
 }
 
 const MOCK_DRONES: MockDrone[] = [
-  { id: 'drone-001', model: 'FlyOS_MQ7', baseLocation: { lat: 18.5204, lng: 73.8567 } }, // Pune
-  { id: 'drone-002', model: 'FlyOS_MQ5', baseLocation: { lat: 19.0760, lng: 72.8777 } }, // Mumbai
-  { id: 'drone-003', model: 'FlyOS_MQ9', baseLocation: { lat: 28.7041, lng: 77.1025 } }, // Delhi
-  { id: 'drone-004', model: 'FlyOS_MQ7', baseLocation: { lat: 12.9716, lng: 77.5946 } }, // Bangalore
-  { id: 'drone-005', model: 'FlyOS_MQ5', baseLocation: { lat: 22.5726, lng: 88.3639 } }, // Kolkata
-  { id: 'drone-006', model: 'FlyOS_MQ9', baseLocation: { lat: 13.0827, lng: 80.2707 } }, // Chennai
-  { id: 'drone-007', model: 'FlyOS_MQ7', baseLocation: { lat: 23.0225, lng: 72.5714 } }, // Ahmedabad
-  { id: 'drone-008', model: 'FlyOS_MQ5', baseLocation: { lat: 26.9124, lng: 75.7873 } }, // Jaipur
-  { id: 'drone-009', model: 'FlyOS_MQ9', baseLocation: { lat: 17.3850, lng: 78.4867 } }, // Hyderabad
-  { id: 'drone-010', model: 'FlyOS_MQ7', baseLocation: { lat: 15.2993, lng: 74.1240 } }  // Goa
+  { id: 'drone-001', model: 'FlyOS_MQ7', baseLocation: { lat: 18.5204, lng: 73.8567 }, cameraStreamActive: new Map() },
+  { id: 'drone-002', model: 'FlyOS_MQ5', baseLocation: { lat: 19.0760, lng: 72.8777 }, cameraStreamActive: new Map() },
+  { id: 'drone-003', model: 'FlyOS_MQ9', baseLocation: { lat: 28.7041, lng: 77.1025 }, cameraStreamActive: new Map() },
+  { id: 'drone-004', model: 'FlyOS_MQ7', baseLocation: { lat: 12.9716, lng: 77.5946 }, cameraStreamActive: new Map() },
+  { id: 'drone-005', model: 'FlyOS_MQ5', baseLocation: { lat: 22.5726, lng: 88.3639 }, cameraStreamActive: new Map() },
+  { id: 'drone-006', model: 'FlyOS_MQ9', baseLocation: { lat: 13.0827, lng: 80.2707 }, cameraStreamActive: new Map() },
+  { id: 'drone-007', model: 'FlyOS_MQ7', baseLocation: { lat: 23.0225, lng: 72.5714 }, cameraStreamActive: new Map() },
+  { id: 'drone-008', model: 'FlyOS_MQ5', baseLocation: { lat: 26.9124, lng: 75.7873 }, cameraStreamActive: new Map() },
+  { id: 'drone-009', model: 'FlyOS_MQ9', baseLocation: { lat: 17.3850, lng: 78.4867 }, cameraStreamActive: new Map() },
+  { id: 'drone-010', model: 'FlyOS_MQ7', baseLocation: { lat: 15.2993, lng: 74.1240 }, cameraStreamActive: new Map() }
 ];
 
 class MockDroneSimulator {
@@ -33,15 +34,14 @@ class MockDroneSimulator {
   }
 
   async startSimulation() {
-    logger.info('🚁 Starting mock drone simulation with camera streaming...');
+    logger.info('🚁 Starting professional mock drone simulation...');
 
     for (const drone of MOCK_DRONES) {
       await this.connectDrone(drone);
-      // Stagger connections
-      await this.sleep(500);
+      await this.sleep(500); // Stagger connections
     }
 
-    logger.info(`✅ ${MOCK_DRONES.length} mock drones connected and transmitting with cameras`);
+    logger.info(`✅ ${MOCK_DRONES.length} mock drones connected with professional camera streaming`);
   }
 
   private async connectDrone(drone: MockDrone) {
@@ -53,22 +53,21 @@ class MockDroneSimulator {
       socket.on('connect', () => {
         logger.info(`🔗 ${drone.id} connected`);
         
-        // Register drone
         socket.emit('drone_register', {
           droneId: drone.id,
           model: drone.model,
-          version: '1.0-mock'
+          version: '1.0-production'
         });
       });
 
       socket.on('registration_success', () => {
         logger.info(`✅ ${drone.id} registered successfully`);
         this.startTelemetryTransmission(drone, socket);
-        this.startCameraStreaming(drone, socket);
+        this.startProfessionalCameraStreaming(drone, socket);
       });
 
       socket.on('command', (command) => {
-        logger.info(`📡 ${drone.id} received command:`, command);
+        logger.info(`📡 ${drone.id} received command:`, command.type);
         this.handleCommand(drone, socket, command);
       });
 
@@ -91,63 +90,46 @@ class MockDroneSimulator {
   }
 
   private startTelemetryTransmission(drone: MockDrone, socket: any) {
-    let altitude = 100; // Starting altitude
-    let direction = 0; // Direction in degrees
-    let speed = 0; // Speed in m/s
-    let battery = 100; // Battery percentage
+    let altitude = 100;
+    let direction = 0;
+    let speed = 0;
+    let battery = 100;
 
     drone.telemetryInterval = setInterval(() => {
-      // Simulate movement
-      const radiusKm = 0.001; // Small radius for realistic movement
+      const radiusKm = 0.001;
       const offsetLat = (Math.sin(direction * Math.PI / 180) * radiusKm);
       const offsetLng = (Math.cos(direction * Math.PI / 180) * radiusKm);
 
-      // Update position
       const currentLat = drone.baseLocation.lat + offsetLat;
       const currentLng = drone.baseLocation.lng + offsetLng;
 
-      // Simulate realistic changes
-      direction += (Math.random() - 0.5) * 10; // Small direction changes
-      altitude += (Math.random() - 0.5) * 5; // Small altitude changes
-      speed = Math.max(0, Math.min(15, speed + (Math.random() - 0.5) * 2)); // 0-15 m/s
-      battery = Math.max(0, battery - 0.001); // Slow battery drain
+      direction += (Math.random() - 0.5) * 10;
+      altitude += (Math.random() - 0.5) * 5;
+      speed = Math.max(0, Math.min(15, speed + (Math.random() - 0.5) * 2));
+      battery = Math.max(0, battery - 0.001);
 
       const telemetryData = {
         timestamp: new Date().toISOString(),
-        
-        // Position
         latitude: currentLat,
         longitude: currentLng,
-        altitude_msl: altitude + 500, // MSL = relative + ground elevation
+        altitude_msl: altitude + 500,
         altitude_relative: altitude,
-        
-        // State
         armed: true,
         flight_mode: ['AUTO', 'GUIDED', 'LOITER'][Math.floor(Math.random() * 3)],
         connected: true,
-        
-        // GPS
         gps_fix: 'GPS_OK',
         satellites: 12 + Math.floor(Math.random() * 6),
         hdop: 0.8 + Math.random() * 0.4,
         position_error: Math.random() * 2,
-        
-        // Battery
         voltage: 22.2 + (Math.random() - 0.5) * 2,
         current: 15 + Math.random() * 10,
         percentage: Math.floor(battery),
-        
-        // Orientation (radians)
         roll: (Math.random() - 0.5) * 0.2,
         pitch: (Math.random() - 0.5) * 0.2,
         yaw: direction * Math.PI / 180,
-        
-        // Velocity
         velocity_x: speed * Math.cos(direction * Math.PI / 180),
         velocity_y: speed * Math.sin(direction * Math.PI / 180),
         velocity_z: (Math.random() - 0.5) * 2,
-        
-        // Meta
         latency: 50 + Math.random() * 100,
         teensy_connected: true,
         latch_status: 'OK'
@@ -155,18 +137,22 @@ class MockDroneSimulator {
 
       socket.emit('telemetry', telemetryData);
 
-      // Send heartbeat every 5 transmissions
       if (Math.random() < 0.2) {
         socket.emit('heartbeat');
       }
 
-    }, 100); // 10Hz (every 100ms)
+    }, 100); // 10Hz telemetry
   }
 
-  private startCameraStreaming(drone: MockDrone, socket: any) {
-    logger.info(`📹 Starting camera streams for ${drone.id}`);
+  private startProfessionalCameraStreaming(drone: MockDrone, socket: any) {
+    logger.info(`📹 Starting professional camera streams for ${drone.id}`);
     
-    // Start camera streams for both cameras
+    // Initialize both cameras as inactive
+    ['front', 'bottom'].forEach(camera => {
+      drone.cameraStreamActive.set(camera, false);
+    });
+    
+    // Start both camera streams ONCE only
     ['front', 'bottom'].forEach(camera => {
       socket.emit('camera_stream_start', {
         droneId: drone.id,
@@ -177,65 +163,88 @@ class MockDroneSimulator {
           quality: 'high'
         }
       });
+      
+      drone.cameraStreamActive.set(camera, true);
+      logger.info(`📹 Camera stream started: ${drone.id}:${camera}`);
     });
 
-    // Send frames at 15 FPS and keep streams alive
+    // Send frames at stable 15 FPS - NO MORE STREAM START SPAM
     drone.cameraInterval = setInterval(() => {
       ['front', 'bottom'].forEach(camera => {
-        // Send camera frame
-        const mockFrame = this.generateMockFrame(drone.id, camera);
-        socket.emit('camera_frame', {
-          droneId: drone.id,
-          camera: camera,
-          timestamp: new Date().toISOString(),
-          frame: mockFrame,
-          metadata: {
-            resolution: '1920x1080',
-            fps: 15,
-            quality: 85
-          }
-        });
-      });
-
-      // Send stream heartbeat every 2 seconds to prevent timeout
-      if (Math.random() < 0.03) { // ~2 seconds at 15 FPS
-        ['front', 'bottom'].forEach(camera => {
-          socket.emit('camera_stream_start', {
+        // Only send frames if stream is active
+        if (drone.cameraStreamActive.get(camera)) {
+          const mockFrame = this.generateProfessionalFrame(drone.id, camera);
+          socket.emit('camera_frame', {
             droneId: drone.id,
             camera: camera,
-            config: {
+            timestamp: new Date().toISOString(),
+            frame: mockFrame,
+            metadata: {
               resolution: '1920x1080',
-              fps: 30,
-              quality: 'high'
+              fps: 15,
+              quality: 85,
+              frameNumber: Math.floor(Date.now() / 67),
+              bandwidth: '2.5 Mbps'
             }
           });
-        });
+        }
+      });
+    }, 67); // Stable 15 FPS (1000ms / 15 = 67ms)
+
+    // Listen for camera control events
+    socket.on('camera_stream_ack', (data: any) => {
+      if (data.droneId === drone.id) {
+        logger.info(`📹 Camera stream ack: ${drone.id}:${data.camera} - ${data.status}`);
+        
+        if (data.status === 'stopped') {
+          drone.cameraStreamActive.set(data.camera, false);
+        } else if (data.status === 'started') {
+          drone.cameraStreamActive.set(data.camera, true);
+        }
       }
-    }, 67); // ~15 FPS
+    });
   }
 
-  private generateMockFrame(droneId: string, camera: string): string {
+  private generateProfessionalFrame(droneId: string, camera: string): string {
     const timestamp = Date.now();
-    const mockImageData = {
-      type: 'mock_camera_frame',
+    const frameData = {
+      type: 'production_camera_frame',
       droneId: droneId,
       camera: camera,
       timestamp: timestamp,
       frameNumber: Math.floor(timestamp / 67),
-      // Simulate different camera views
-      brightness: camera === 'front' ? 180 + Math.random() * 40 : 120 + Math.random() * 60,
+      
+      // Realistic camera parameters
+      exposure: camera === 'front' ? 1/500 : 1/250,
+      iso: 100 + Math.random() * 200,
+      focus_distance: 5 + Math.random() * 95,
+      white_balance: 5600 + Math.random() * 400,
+      
+      // Simulate different views
+      scene_brightness: camera === 'front' ? 180 + Math.random() * 40 : 120 + Math.random() * 60,
       contrast: 1.0 + (Math.random() - 0.5) * 0.2,
-      objects_detected: Math.floor(Math.random() * 5),
-      // Add movement simulation
-      pan: Math.sin(timestamp / 10000) * 30,
-      tilt: Math.cos(timestamp / 8000) * 20,
-      // Add realistic camera metadata
-      exposure: 1/500 + Math.random() * 0.001,
-      iso: 100 + Math.random() * 300,
-      focus_distance: 5 + Math.random() * 95
+      saturation: 1.0 + (Math.random() - 0.5) * 0.1,
+      
+      // Motion simulation
+      gimbal_roll: Math.sin(timestamp / 5000) * 2,
+      gimbal_pitch: Math.cos(timestamp / 7000) * 3,
+      gimbal_yaw: Math.sin(timestamp / 10000) * 5,
+      
+      // AI/CV features
+      objects_detected: Math.floor(Math.random() * 3),
+      faces_detected: camera === 'front' ? Math.floor(Math.random() * 2) : 0,
+      motion_vectors: Array.from({length: 5}, () => ({
+        x: (Math.random() - 0.5) * 10,
+        y: (Math.random() - 0.5) * 10
+      })),
+      
+      // Quality metrics
+      sharpness: 0.8 + Math.random() * 0.2,
+      noise_level: Math.random() * 0.1,
+      compression_ratio: 0.15 + Math.random() * 0.05
     };
     
-    return Buffer.from(JSON.stringify(mockImageData)).toString('base64');
+    return Buffer.from(JSON.stringify(frameData)).toString('base64');
   }
 
   private stopCameraStreaming(drone: MockDrone) {
@@ -249,6 +258,7 @@ class MockDroneSimulator {
             droneId: drone.id,
             camera: camera
           });
+          drone.cameraStreamActive.set(camera, false);
         });
       }
       
@@ -264,7 +274,6 @@ class MockDroneSimulator {
   }
 
   private handleCommand(drone: MockDrone, socket: any, command: any) {
-    // Simulate command execution delay
     setTimeout(() => {
       socket.emit('command_response', {
         commandId: command.id || Date.now(),
@@ -281,7 +290,7 @@ class MockDroneSimulator {
   }
 
   async stopSimulation() {
-    logger.info('🛑 Stopping mock drone simulation...');
+    logger.info('🛑 Stopping professional mock drone simulation...');
     
     for (const drone of this.activeDrones.values()) {
       this.stopTelemetryTransmission(drone);
@@ -292,15 +301,14 @@ class MockDroneSimulator {
     }
     
     this.activeDrones.clear();
-    logger.info('✅ Mock simulation stopped');
+    logger.info('✅ Professional simulation stopped');
   }
 }
 
-// Run simulation if file is executed directly
+// Run simulation if executed directly
 if (require.main === module) {
   const simulator = new MockDroneSimulator();
   
-  // Handle graceful shutdown
   process.on('SIGINT', async () => {
     await simulator.stopSimulation();
     process.exit(0);

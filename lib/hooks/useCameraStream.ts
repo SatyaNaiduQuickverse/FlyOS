@@ -1,9 +1,12 @@
+// lib/hooks/useCameraStream.ts - DIRECT CONNECTION FIX
 import { useState, useEffect, useCallback, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
-// FIXED: Use secure routing through port 3001
+// FIXED: Use environment variable for production deployment
 const REALTIME_SERVICE_URL = process.env.NEXT_PUBLIC_WS_URL || 
-  (typeof window !== 'undefined' ? window.location.origin : "http://localhost:3001");
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:4002`
+    : 'http://localhost:4002');
 
 export const useCameraStream = (droneId: string, camera: "front" | "bottom") => {
   const [state, setState] = useState({
@@ -17,45 +20,78 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
   });
 
   const socketRef = useRef<Socket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const connectionAttemptsRef = useRef(0);
+  const maxConnectionAttempts = 3;
 
   const getAuthToken = () => {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem("flyos_token") || 
-           localStorage.getItem("auth_token") ||
-           sessionStorage.getItem("token");
+    return localStorage.getItem("flyos_token");
   };
+
+  const cleanup = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    
+    setState(prev => ({ 
+      ...prev, 
+      isConnected: false, 
+      streamStatus: "inactive" 
+    }));
+  }, []);
 
   const initializeConnection = useCallback(async () => {
     if (socketRef.current?.connected) return;
 
+    const token = getAuthToken();
+    if (!token) {
+      console.warn("No authentication token for camera stream");
+      setState(prev => ({ ...prev, streamStatus: "error" }));
+      return;
+    }
+
+    if (connectionAttemptsRef.current >= maxConnectionAttempts) {
+      console.error(`Max connection attempts reached for ${droneId}:${camera}`);
+      setState(prev => ({ ...prev, streamStatus: "error" }));
+      return;
+    }
+
     try {
       setState(prev => ({ ...prev, streamStatus: "connecting" }));
-      
-      const token = getAuthToken();
-      if (!token) {
-        console.warn("No authentication token available for camera stream");
-        setState(prev => ({ ...prev, streamStatus: "error" }));
-        return;
-      }
+      connectionAttemptsRef.current++;
+
+      console.log(`Connecting camera ${droneId}:${camera} to ${REALTIME_SERVICE_URL}`);
 
       const socket = io(REALTIME_SERVICE_URL, {
         auth: { token },
-        extraHeaders: {
-          Authorization: `Bearer ${token}`
-        },
         query: { token },
-        transports: ["polling", "websocket"],
-        timeout: 10000
+        extraHeaders: {
+          'Authorization': `Bearer ${token}`
+        },
+        transports: ["websocket", "polling"],
+        timeout: 15000,
+        reconnection: false,
+        forceNew: true
       });
 
       socket.on("connect", () => {
-        console.log(`Camera stream connected for ${droneId}:${camera}`);
+        console.log(`✅ Camera stream connected: ${droneId}:${camera}`);
+        connectionAttemptsRef.current = 0;
+        
         setState(prev => ({ 
           ...prev, 
           isConnected: true, 
           streamStatus: "active" 
         }));
 
+        // Subscribe to camera streams
         socket.emit("subscribe_camera_stream", {
           droneId,
           camera,
@@ -67,12 +103,31 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
       });
 
       socket.on("connect_error", (error) => {
-        console.error(`Camera stream auth error: ${error.message}`);
+        console.error(`❌ Camera connection error ${droneId}:${camera}:`, error.message);
         setState(prev => ({ 
           ...prev, 
           streamStatus: "error", 
           isConnected: false 
         }));
+
+        // Retry with backoff
+        if (connectionAttemptsRef.current < maxConnectionAttempts) {
+          const delay = Math.min(2000 * connectionAttemptsRef.current, 10000);
+          reconnectTimeoutRef.current = setTimeout(initializeConnection, delay);
+        }
+      });
+
+      socket.on("disconnect", (reason) => {
+        console.log(`📴 Camera disconnected ${droneId}:${camera}: ${reason}`);
+        setState(prev => ({ 
+          ...prev, 
+          isConnected: false,
+          streamStatus: "inactive"
+        }));
+
+        if (reason !== 'io client disconnect' && connectionAttemptsRef.current < maxConnectionAttempts) {
+          reconnectTimeoutRef.current = setTimeout(initializeConnection, 3000);
+        }
       });
 
       socket.on("camera_frame", (data: any) => {
@@ -89,7 +144,7 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
 
       socket.on("camera_control", (data: any) => {
         if (data.droneId === droneId && data.camera === camera) {
-          console.log(`Camera control message:`, data);
+          console.log(`📹 Camera control: ${droneId}:${camera}`, data);
         }
       });
 
@@ -103,13 +158,8 @@ export const useCameraStream = (droneId: string, camera: "front" | "bottom") => 
 
   useEffect(() => {
     initializeConnection();
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-    };
-  }, [initializeConnection]);
+    return cleanup;
+  }, [initializeConnection, cleanup]);
 
   return {
     ...state,
