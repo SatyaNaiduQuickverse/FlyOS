@@ -1,4 +1,4 @@
-// services/drone-db-service/src/services/droneService.ts - EXTENDED WITH PRECISION LANDING
+// services/drone-db-service/src/services/droneService.ts - FIXED TYPESCRIPT ERRORS
 import { pool, prisma } from '../database';
 import { storeDroneState } from '../redis';
 import { logger } from '../utils/logger';
@@ -166,7 +166,7 @@ export interface PrecisionLandingData {
   rawData?: any;
 }
 
-// NEW: Store precision landing data in TimescaleDB
+// NEW: Store precision landing data in TimescaleDB - FIXED TYPE ISSUES
 export const storePrecisionLandingData = async (data: PrecisionLandingData) => {
   try {
     const query = `
@@ -181,20 +181,21 @@ export const storePrecisionLandingData = async (data: PrecisionLandingData) => {
     
     const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
     
-    const values = [
-      data.droneId,
-      timestamp,
-      data.sessionId,
-      data.stage,
-      data.message,
-      data.altitude,
-      data.targetDetected,
-      data.targetConfidence,
-      data.lateralError,
-      data.verticalError,
-      data.batteryLevel,
-      data.windSpeed,
-      data.rawData ? JSON.stringify(data.rawData) : null
+    // FIXED: Explicitly handle type conversions and null values
+    const values: (string | number | boolean | Date | null)[] = [
+      data.droneId,                                                    // $1 - string
+      timestamp,                                                       // $2 - Date
+      data.sessionId,                                                  // $3 - string
+      data.stage || null,                                             // $4 - string | null
+      data.message,                                                    // $5 - string
+      data.altitude || null,                                          // $6 - number | null
+      data.targetDetected || null,                                    // $7 - boolean | null
+      data.targetConfidence || null,                                  // $8 - number | null
+      data.lateralError || null,                                      // $9 - number | null
+      data.verticalError || null,                                     // $10 - number | null
+      data.batteryLevel || null,                                      // $11 - number | null
+      data.windSpeed || null,                                         // $12 - number | null
+      data.rawData ? JSON.stringify(data.rawData) : null             // $13 - string | null
     ];
     
     const result = await pool.query(query, values);
@@ -223,7 +224,7 @@ export const getPrecisionLandingHistory = async (
       FROM precision_landing_logs
       WHERE drone_id = $1
     `;
-    const values = [droneId];
+    const values: (string | Date | number)[] = [droneId];
     
     if (startTime && endTime) {
       query += ` AND timestamp BETWEEN $2 AND $3`;

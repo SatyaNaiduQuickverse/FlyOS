@@ -22,12 +22,12 @@ const DronePrecisionLand = () => {
   const outputRef = useRef(null);
   const socketRef = useRef(null);
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection - FIXED URL
   useEffect(() => {
     if (!token || !droneId) return;
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 
-      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+    // Use direct realtime service URL for precision landing
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://3.111.215.70:4002';
       
     const socket = io(wsUrl, {
       auth: { token },

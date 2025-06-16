@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - COMPLETE WITH MAVROS IN TELEMETRY
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - UPDATED WITH ATTITUDE COMPONENT
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../../../../lib/auth';
 import { useDroneState } from '../../../../../lib/hooks/useDroneState';
 
-// Import ALL components including the new MAVROS component
+// Import ALL components including the new DroneAttitude component
 import DroneInfoPanel from '../../../../../components/DroneControl/DroneInfoPanel';
 import TelemetryDashboard from '../../../../../components/DroneControl/TelemetryDashboard';
 import DetailedTelemetry from '../../../../../components/DroneControl/DetailedTelemetry';
@@ -25,8 +25,9 @@ import DroneMap from '../../../../../components/DroneControl/DroneMap';
 import ParameterManager from '../../../../../components/ParameterManager';
 import MissionPlanner from '../../../../../components/MissionPlanner';
 import DroneBattery from '../../../../../components/DroneControl/DroneBattery';
-import MAVROSMonitor from '../../../../../components/DroneControl/MAVROSMonitor'; // NEW IMPORT
+import MAVROSMonitor from '../../../../../components/DroneControl/MAVROSMonitor';
 import DronePrecisionLand from '../../../../../components/DroneControl/DronePrecisionLand';
+import DroneAttitude from '../../../../../components/DroneControl/DroneAttitude'; // NEW IMPORT
 
 export default function DroneControlPage() {
   const router = useRouter();
@@ -375,29 +376,34 @@ export default function DroneControlPage() {
               </div>
             </div>
 
-            {/* NEW: Precision Landing - Full Width */}
+            {/* Precision Landing - Full Width */}
             <div className="w-full">
               <DronePrecisionLand />
             </div>
           </div>
         )}
         
-        {/* TELEMETRY TAB - WITH INTEGRATED BATTERY AND MAVROS COMPONENTS */}
+        {/* TELEMETRY TAB - WITH INTEGRATED BATTERY, MAVROS, AND NEW ATTITUDE COMPONENTS */}
         {activeTab === 'telemetry' && (
           <div className="space-y-6">
             {/* Detailed Telemetry */}
             <DetailedTelemetry droneId={droneId as string} token={token} />
             
-            {/* Grid Layout: Battery and MAVROS side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* NEW: Three-column layout for Battery, MAVROS, and Attitude */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Battery Component */}
               <div className="lg:col-span-1">
                 <DroneBattery />
               </div>
               
-              {/* NEW: MAVROS Monitor Component */}
+              {/* MAVROS Monitor Component */}
               <div className="lg:col-span-1">
                 <MAVROSMonitor droneId={droneId as string} />
+              </div>
+              
+              {/* NEW: Drone Attitude Component */}
+              <div className="lg:col-span-1">
+                <DroneAttitude droneId={droneId as string} />
               </div>
             </div>
           </div>

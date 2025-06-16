@@ -16,7 +16,7 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
       # App Configuration
       - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_WS_URL=http://3.111.215.70:4002
+      - NEXT_PUBLIC_WS_URL=http://localhost:3001
       - NEXT_PUBLIC_DOMAIN=http://localhost:3001
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - USER_MANAGEMENT_SERVICE_URL=http://user-management-service:4003
@@ -202,8 +202,8 @@ services:
       - CAMERA_BUFFER_SIZE=50
       - CAMERA_FRAME_TIMEOUT=3000
     # REMOVED: External port exposure for security
-    ports:
-      - "4002:4002"
+    # ports:
+    #   - "4002:4002"
     networks:
       - flyos-network
     restart: unless-stopped

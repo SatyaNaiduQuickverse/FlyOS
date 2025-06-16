@@ -202,8 +202,8 @@ services:
       - CAMERA_BUFFER_SIZE=50
       - CAMERA_FRAME_TIMEOUT=3000
     # REMOVED: External port exposure for security
-    ports:
-      - "4002:4002"
+    # ports:
+    #   - "4002:4002"
     networks:
       - flyos-network
     restart: unless-stopped
