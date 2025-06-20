@@ -1,4 +1,4 @@
-// app/secure/main-hq/drone-control/[droneId]/page.tsx - UPDATED WITH ATTITUDE COMPONENT
+// app/secure/main-hq/drone-control/[droneId]/page.tsx - UPDATED WITH FIXED TELEMETRY LAYOUT
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -383,28 +383,28 @@ export default function DroneControlPage() {
           </div>
         )}
         
-        {/* TELEMETRY TAB - WITH INTEGRATED BATTERY, MAVROS, AND NEW ATTITUDE COMPONENTS */}
+        {/* TELEMETRY TAB - WITH FIXED LAYOUT: Detailed Telemetry, then Battery and Attitude side by side, MAVROS below */}
         {activeTab === 'telemetry' && (
           <div className="space-y-6">
-            {/* Detailed Telemetry */}
+            {/* Detailed Telemetry - Shows live incoming data */}
             <DetailedTelemetry droneId={droneId as string} token={token} />
             
-            {/* NEW: Three-column layout for Battery, MAVROS, and Attitude */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* FIXED: Two-column layout for Battery and Attitude side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Battery Component */}
               <div className="lg:col-span-1">
                 <DroneBattery />
               </div>
               
-              {/* MAVROS Monitor Component */}
-              <div className="lg:col-span-1">
-                <MAVROSMonitor droneId={droneId as string} />
-              </div>
-              
-              {/* NEW: Drone Attitude Component */}
+              {/* Drone Attitude Component */}
               <div className="lg:col-span-1">
                 <DroneAttitude droneId={droneId as string} />
               </div>
+            </div>
+            
+            {/* MAVROS Monitor Component - Full width below */}
+            <div className="w-full">
+              <MAVROSMonitor droneId={droneId as string} />
             </div>
           </div>
         )}

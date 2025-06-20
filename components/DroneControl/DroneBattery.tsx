@@ -1,4 +1,4 @@
-// components/DroneControl/DroneBattery.tsx - INTEGRATED WITH EXISTING DATA STREAM
+// components/DroneControl/DroneBattery.tsx - CLEAN UI VERSION
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Battery, Zap, AlertTriangle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
@@ -200,54 +200,48 @@ const DroneBattery: React.FC = () => {
         </div>
       )}
 
-      {/* Header Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between p-6">
-          <div className="flex items-center gap-3">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
-            <h2 className="text-2xl tracking-wider font-light">BATTERY STATUS</h2>
-            <div className="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded">
-              {droneId}
-            </div>
-            {lastUpdate && (
-              <div className="text-xs text-gray-500">
-                Via: {isConnected ? 'WebSocket' : 'API'} | {lastUpdate.toLocaleTimeString()}
-              </div>
-            )}
+      {/* CLEAN HEADER SECTION */}
+      <div className="p-6 pb-3">
+        {/* Row 1: Clean Header */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
+          <h2 className="text-lg font-light tracking-wider text-blue-300">BATTERY STATUS</h2>
+          <div className="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded">
+            {droneId}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-4">
-              {!showAllTime && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400 tracking-wider">WINDOW:</span>
-                  <select
-                    value={windowSize}
-                    onChange={(e) => setWindowSize(Number(e.target.value))}
-                    className="bg-slate-800/70 text-white px-3 py-1 rounded-md border border-gray-800"
-                  >
-                    <option value="10">10 points (1s)</option>
-                    <option value="30">30 points (3s)</option>
-                    <option value="60">60 points (6s)</option>
-                    <option value="120">120 points (12s)</option>
-                    <option value="300">300 points (30s)</option>
-                  </select>
-                </div>
-              )}
-              <button
-                onClick={() => setShowAllTime(!showAllTime)}
-                className="flex items-center gap-2 px-3 py-1 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-500/30"
+        </div>
+        
+        {/* Row 2: Controls */}
+        <div className="flex items-center gap-4 text-sm">
+          {!showAllTime && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400 tracking-wider">WINDOW:</span>
+              <select
+                value={windowSize}
+                onChange={(e) => setWindowSize(Number(e.target.value))}
+                className="bg-slate-800/70 text-white px-2 py-1 rounded border border-gray-800 text-xs"
               >
-                {showAllTime ? 'Show Real-time' : 'Show All-time'}
-              </button>
+                <option value="10">10 points</option>
+                <option value="30">30 points</option>
+                <option value="60">60 points</option>
+                <option value="120">120 points</option>
+                <option value="300">300 points</option>
+              </select>
             </div>
-            <button
-              onClick={clearHistory}
-              className="flex items-center gap-2 px-3 py-1 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30"
-            >
-              <Trash2 size={16} />
-              Clear History
-            </button>
-          </div>
+          )}
+          <button
+            onClick={() => setShowAllTime(!showAllTime)}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-500/30 text-xs tracking-wider"
+          >
+            {showAllTime ? 'Real-time' : 'All-time'}
+          </button>
+          <button
+            onClick={clearHistory}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 text-xs tracking-wider"
+          >
+            <Trash2 size={12} />
+            Clear
+          </button>
         </div>
       </div>
 
@@ -342,7 +336,7 @@ const DroneBattery: React.FC = () => {
         </div>
       </div>
 
-      {/* Power Graph Toggle */}
+      {/* Power Graph Toggle - UNCHANGED */}
       <div className="mx-6">
         <button
           onClick={() => setShowPowerGraph(prev => !prev)}
@@ -353,7 +347,7 @@ const DroneBattery: React.FC = () => {
         </button>
       </div>
 
-      {/* Power Graph */}
+      {/* Power Graph - UNCHANGED */}
       {showPowerGraph && (
         <div className="bg-slate-800/50 mx-6 p-6 rounded-lg border border-gray-800">
           <h3 className="text-lg font-light tracking-wider mb-4 text-blue-300">POWER CONSUMPTION HISTORY</h3>
@@ -411,11 +405,26 @@ const DroneBattery: React.FC = () => {
         </div>
       )}
 
-      {/* Status Message */}
-      <div className="text-sm text-gray-400 p-6 tracking-wider">
-        <p>STATUS: {isCriticalPercentage ? 'CRITICAL' : isLowVoltage ? 'WARNING' : 'NORMAL'}</p>
-        <p>LAST UPDATED: {new Date(lastUpdateTime).toLocaleTimeString()}</p>
-        <p>DRONE: {droneId}</p>
+      {/* ENHANCED STATUS MESSAGE - WITH CONNECTION INFO */}
+      <div className="text-sm text-gray-400 px-6 pb-6 tracking-wider space-y-1">
+        <div className="flex items-center gap-4 flex-wrap">
+          <span>STATUS: {isCriticalPercentage ? 'CRITICAL' : isLowVoltage ? 'WARNING' : 'NORMAL'}</span>
+          <span className="text-gray-600">•</span>
+          <span>LAST UPDATED: {new Date(lastUpdateTime).toLocaleTimeString()}</span>
+          <span className="text-gray-600">•</span>
+          <span>DRONE: {droneId}</span>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <span>CONNECTION: {isConnected ? 'WebSocket Active' : 'API Polling'}</span>
+          {lastUpdate && (
+            <>
+              <span className="text-gray-600">•</span>
+              <span>DATA SOURCE: {isConnected ? 'Live Stream' : 'Periodic Fetch'}</span>
+              <span className="text-gray-600">•</span>
+              <span>SYNC: {lastUpdate.toLocaleTimeString()}</span>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
