@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/app.ts - EXTENDED WITH PRECISION LANDING ENDPOINTS
+// services/drone-connection-service/src/app.ts - UPDATED WITH REAL DRONE SUPPORT
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -9,6 +9,12 @@ import { setupCommandHandler } from './commandHandler';
 import { setupMissionHandler } from './missionHandler';
 import { setupCameraHandler, setupCameraAPI } from './cameraHandler';
 import { setupMAVROSHandler } from './mavrosHandler';
+
+// NEW: Import real drone handlers
+import { setupRealDroneHandler } from './handlers/realDroneHandler';
+import { setupWebRTCSignaling, setupWebRTCAPI } from './handlers/webrtcSignaling';
+import { setupDroneRegistry } from './handlers/droneRegistry';
+
 import { initRedis, redisClient } from './redis';
 import { logger } from './utils/logger';
 import { cleanupOldMissions } from './missionStorage';
@@ -22,14 +28,17 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 4005;
 
-// Middleware
+// Enhanced middleware
 app.use(helmet());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || "*",
-  methods: ["GET", "POST"],
+  methods: ["GET", "POST", "DELETE"],
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// Trust proxy for proper IP handling
+app.set('trust proxy', true);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -43,17 +52,40 @@ app.get('/health', (req, res) => {
       'commands', 
       'waypoint-missions', 
       'camera-streaming',
+      'webrtc-signaling',
       'mavros-logging',
-      'precision-landing'
-    ]
+      'precision-landing',
+      'real-drone-support'
+    ],
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
 // Connected drones status endpoint
 app.get('/status', (req, res) => {
+  const connectedDrones = global.connectedDrones || {};
+  const realDrones = Object.values(connectedDrones).filter((drone: any) => drone.droneType === 'REAL');
+  const mockDrones = Object.values(connectedDrones).filter((drone: any) => drone.droneType !== 'REAL');
+  
   res.json({
-    connectedDrones: global.connectedDrones || {},
-    totalConnected: Object.keys(global.connectedDrones || {}).length
+    connectedDrones,
+    totalConnected: Object.keys(connectedDrones).length,
+    realDrones: realDrones.length,
+    mockDrones: mockDrones.length,
+    breakdown: {
+      real: realDrones.map((drone: any) => ({
+        droneId: drone.droneId,
+        model: drone.model,
+        connectedAt: drone.connectedAt,
+        connectionQuality: drone.connectionQuality,
+        dataChannels: drone.dataChannels
+      })),
+      mock: mockDrones.map((drone: any) => ({
+        droneId: drone.droneId,
+        model: drone.model,
+        connectedAt: drone.connectedAt
+      }))
+    }
   });
 });
 
@@ -82,7 +114,7 @@ app.get('/redis/:droneId', async (req, res) => {
   }
 });
 
-// NEW: Precision landing buffer endpoint
+// Precision landing buffer endpoint
 app.get('/precision-landing/:droneId/buffer', async (req, res) => {
   try {
     const droneId = req.params.droneId;
@@ -118,7 +150,7 @@ app.get('/precision-landing/:droneId/buffer', async (req, res) => {
   }
 });
 
-// NEW: Precision landing session status endpoint
+// Precision landing session status endpoint
 app.get('/precision-landing/:droneId/status', async (req, res) => {
   try {
     const droneId = req.params.droneId;
@@ -212,20 +244,26 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 const startServer = async () => {
   try {
-    logger.info('🚀 Starting Enhanced Drone Connection Service with Precision Landing...');
+    logger.info('🚀 Starting Enhanced Drone Connection Service with Real Drone Support...');
     
     // Initialize Redis connection
     await initRedis();
     logger.info('✅ Redis connected');
     
-    // Setup drone connection handlers
+    // Setup drone connection handlers (existing mock support)
     setupDroneHandler(io);
-    logger.info('✅ Drone handlers configured');
+    logger.info('✅ Mock drone handlers configured');
+    
+    // NEW: Setup real drone handlers
+    setupRealDroneHandler(io);
+    logger.info('✅ Real drone handlers configured');
     
     // Setup command handler for bidirectional communication
     setupCommandHandler(io);
@@ -235,7 +273,7 @@ const startServer = async () => {
     setupMissionHandler(io);
     logger.info('✅ Mission handler configured');
     
-    // Setup camera handler for video streaming
+    // Setup camera handler for video streaming (existing)
     setupCameraHandler(io);
     logger.info('✅ Camera handler configured');
     
@@ -243,9 +281,21 @@ const startServer = async () => {
     setupCameraAPI(app);
     logger.info('✅ Camera API configured');
     
+    // NEW: Setup WebRTC signaling
+    setupWebRTCSignaling(io);
+    logger.info('✅ WebRTC signaling configured');
+    
+    // NEW: Setup WebRTC API endpoints
+    setupWebRTCAPI(app);
+    logger.info('✅ WebRTC API configured');
+    
     // Setup MAVROS handler for message logging
     setupMAVROSHandler(io);
     logger.info('✅ MAVROS handler configured');
+    
+    // NEW: Setup drone registry endpoints
+    setupDroneRegistry(app);
+    logger.info('✅ Drone registry configured');
     
     // Global connected drones registry
     global.connectedDrones = {};
@@ -266,11 +316,14 @@ const startServer = async () => {
       logger.info(`🔴 Redis endpoint: http://localhost:${PORT}/redis/:droneId`);
       logger.info(`🗺️ Mission endpoint: http://localhost:${PORT}/missions/:droneId`);
       logger.info(`🎯 Precision Landing: http://localhost:${PORT}/precision-landing/:droneId/*`);
+      logger.info(`📹 WebRTC endpoints: http://localhost:${PORT}/webrtc/*`);
+      logger.info(`📝 MAVROS endpoints: http://localhost:${PORT}/mavros/:droneId/*`);
+      logger.info(`📋 Registry endpoints: http://localhost:${PORT}/drone/*`);
       logger.info(`🎮 Command channels: drone:*:commands`);
       logger.info(`✈️ Mission commands: upload_waypoints, start_mission, cancel_mission, clear_waypoints`);
       logger.info(`🎯 Precision commands: precision_land, abort_precision_land`);
-      logger.info(`📹 Camera endpoints: http://localhost:${PORT}/camera/*`);
-      logger.info(`📝 MAVROS endpoints: http://localhost:${PORT}/mavros/:droneId/*`);
+      logger.info(`🤖 Real drone support: ENABLED`);
+      logger.info(`🎬 Mock drone support: ENABLED`);
     });
     
   } catch (error) {

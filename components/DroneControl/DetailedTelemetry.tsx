@@ -1,7 +1,7 @@
-// components/DroneControl/DetailedTelemetry.tsx - COMPLETE WITH TOKEN SUPPORT
+// components/DroneControl/DetailedTelemetry.tsx - LOCATION SECTION REMOVED
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { Activity, Compass, Globe, Clock, Wind, Thermometer, AlertCircle, LineChart, TrendingUp, Battery, Plane } from 'lucide-react';
+import { Activity, Compass, Clock, Wind, Thermometer, AlertCircle, LineChart, TrendingUp, Battery, Plane } from 'lucide-react';
 
 interface Coordinates {
   lat: number;
@@ -376,7 +376,7 @@ const DetailedTelemetry: React.FC<DetailedTelemetryProps> = ({ droneId, token })
                 <div className="text-xs text-gray-400 mb-1">COORDINATES</div>
                 <div className="text-sm font-light text-white">{formatCoordinates(telemetry.coordinates)}</div>
                 <div className="text-xs text-blue-400 flex items-center justify-center gap-1">
-                  <Globe className="h-3 w-3" />
+                  <Compass className="h-3 w-3" />
                   <span>GPS</span>
                 </div>
               </div>
@@ -436,55 +436,6 @@ const DetailedTelemetry: React.FC<DetailedTelemetryProps> = ({ droneId, token })
                     {telemetry.signalLatency < 50 ? 'Excellent' : telemetry.signalLatency < 100 ? 'Good' : 'Poor'}
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Live position map */}
-          <div className="bg-gray-900/80 p-6 rounded-lg shadow-lg backdrop-blur-sm border border-gray-800">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-light tracking-wider text-blue-300 flex items-center gap-2">
-                <Globe className="h-5 w-5" />
-                LIVE POSITION
-              </h3>
-              <div className="text-sm text-gray-400">
-                Updated: {telemetry.lastUpdated.toLocaleTimeString()}
-              </div>
-            </div>
-            
-            <div className="bg-gradient-to-b from-gray-800 to-gray-900 h-64 rounded-lg border border-gray-700 relative overflow-hidden">
-              {/* Simulated map grid */}
-              <div className="absolute inset-0 grid grid-cols-10 grid-rows-6">
-                {Array.from({ length: 60 }).map((_, i) => (
-                  <div key={i} className="border border-gray-800/20"></div>
-                ))}
-              </div>
-              
-              {/* Live drone position indicator */}
-              <div 
-                className="absolute w-4 h-4 bg-blue-500 rounded-full animate-ping"
-                style={{ 
-                  left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
-                  top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%` 
-                }}
-              ></div>
-              <div 
-                className="absolute w-3 h-3 bg-blue-400 rounded-full"
-                style={{ 
-                  left: `${((telemetry.coordinates.lng + 180) / 360) * 100}%`, 
-                  top: `${((90 - telemetry.coordinates.lat) / 180) * 100}%`,
-                  transform: 'translate(-50%, -50%)' 
-                }}
-              ></div>
-              
-              {/* Live coordinates display */}
-              <div className="absolute bottom-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
-                {formatCoordinates(telemetry.coordinates)}
-              </div>
-              
-              {/* Altitude indicator */}
-              <div className="absolute top-2 right-2 bg-gray-900/80 px-3 py-1 rounded-lg text-xs text-gray-300">
-                ALT: {Math.round(telemetry.altitude)}m
               </div>
             </div>
           </div>
