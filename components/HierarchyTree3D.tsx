@@ -1,7 +1,7 @@
-// components/HierarchyTree3D.tsx - COMPLETE FIXED VERSION
+// components/HierarchyTree3D.tsx - 3D NETWORK VISUALIZATION
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   Users, 
   Shield, 
@@ -12,312 +12,477 @@ import {
   RotateCcw,
   Info,
   Loader2,
-  ChevronDown,
-  ChevronRight,
   Building,
-  Zap
+  Zap,
+  Network,
+  Eye,
+  MousePointer
 } from 'lucide-react';
+import * as THREE from 'three';
 
 // Interfaces
-interface HierarchyNode {
+interface NetworkNode {
   id: string;
-  type: 'MAIN_HQ' | 'REGIONAL_HQ' | 'OPERATOR' | 'REGION' | 'DRONE' | 'UNASSIGNED';
+  type: 'MAIN_HQ' | 'REGIONAL_HQ' | 'COMMANDER' | 'OPERATOR' | 'DRONE';
   name: string;
   username?: string;
   email?: string;
   area?: string;
-  commanderName?: string;
   model?: string;
   status?: string;
   role?: string;
-  children: HierarchyNode[];
+  position: { x: number; y: number; z: number };
+  connections: string[]; // IDs of connected nodes
   droneCount?: number;
   userCount?: number;
 }
 
-// Node colors and icons
-const getNodeColor = (node: HierarchyNode): string => {
-  switch (node.type) {
-    case 'MAIN_HQ': return 'bg-blue-500/20 text-blue-300 border-blue-500/40';
-    case 'REGIONAL_HQ': return 'bg-green-500/20 text-green-300 border-green-500/40';
-    case 'OPERATOR': return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
-    case 'REGION': return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
-    case 'DRONE':
-      switch (node.status) {
-        case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/40';
-        case 'STANDBY': return 'bg-blue-500/20 text-blue-300 border-blue-500/40';
-        case 'MAINTENANCE': return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
-        case 'OFFLINE': return 'bg-red-500/20 text-red-300 border-red-500/40';
-        default: return 'bg-gray-500/20 text-gray-300 border-gray-500/40';
+interface Connection {
+  from: string;
+  to: string;
+  strength: number; // 0-1, affects line thickness and opacity
+}
+
+// Node configuration
+const NODE_COLORS = {
+  MAIN_HQ: 0x00ffff,      // Cyan
+  REGIONAL_HQ: 0x00ff00,  // Green  
+  COMMANDER: 0xffff00,    // Yellow
+  OPERATOR: 0xff8800,     // Orange
+  DRONE: 0xff0000         // Red
+};
+
+const NODE_SIZES = {
+  MAIN_HQ: 0.8,
+  REGIONAL_HQ: 0.6,
+  COMMANDER: 0.5,
+  OPERATOR: 0.4,
+  DRONE: 0.3
+};
+
+// 3D Network Visualization Component
+const Network3D: React.FC<{
+  nodes: NetworkNode[];
+  connections: Connection[];
+  selectedNode: NetworkNode | null;
+  onNodeClick: (node: NetworkNode) => void;
+}> = ({ nodes, connections, selectedNode, onNodeClick }) => {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<THREE.Scene>();
+  const rendererRef = useRef<THREE.WebGLRenderer>();
+  const cameraRef = useRef<THREE.PerspectiveCamera>();
+  const frameRef = useRef<number>();
+  const nodeObjectsRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const lineObjectsRef = useRef<THREE.Group>();
+  const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
+  const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
+
+  // Initialize Three.js scene
+  useEffect(() => {
+    if (!mountRef.current) return;
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a0a);
+    sceneRef.current = scene;
+
+    // Camera setup
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      mountRef.current.clientWidth / mountRef.current.clientHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(0, 0, 15);
+    cameraRef.current = camera;
+
+    // Renderer setup
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    mountRef.current.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(10, 10, 5);
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+
+    // Point lights for dramatic effect
+    const pointLight1 = new THREE.PointLight(0x00ffff, 0.5, 20);
+    pointLight1.position.set(-5, 5, 5);
+    scene.add(pointLight1);
+
+    const pointLight2 = new THREE.PointLight(0xff0080, 0.5, 20);
+    pointLight2.position.set(5, -5, 5);
+    scene.add(pointLight2);
+
+    // Mouse controls for camera rotation
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let cameraRotation = { x: 0, y: 0 };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      isDragging = true;
+      previousMousePosition = { x: event.clientX, y: event.clientY };
+    };
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!isDragging) {
+        // Update mouse position for raycasting
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        return;
       }
-    case 'UNASSIGNED': return 'bg-gray-500/20 text-gray-300 border-gray-500/40';
-    default: return 'bg-gray-500/20 text-gray-300 border-gray-500/40';
-  }
-};
 
-const getNodeIcon = (type: string) => {
-  switch (type) {
-    case 'MAIN_HQ': return Users;
-    case 'REGIONAL_HQ': return Shield;
-    case 'OPERATOR': return UserCheck;
-    case 'DRONE': return Plane;
-    case 'REGION': return Building;
-    case 'UNASSIGNED': return Users;
-    default: return Users;
-  }
-};
+      const deltaMove = {
+        x: event.clientX - previousMousePosition.x,
+        y: event.clientY - previousMousePosition.y
+      };
 
-// Tree Node Component
-const TreeNode: React.FC<{
-  node: HierarchyNode;
-  level: number;
-  onNodeClick: (node: HierarchyNode) => void;
-  selectedNode: HierarchyNode | null;
-  expandedNodes: Set<string>;
-  onToggleExpand: (nodeId: string) => void;
-}> = ({ node, level, onNodeClick, selectedNode, expandedNodes, onToggleExpand }) => {
-  const isSelected = selectedNode?.id === node.id;
-  const isExpanded = expandedNodes.has(node.id);
-  const hasChildren = node.children && node.children.length > 0;
-  const indentation = level * 20;
-  const IconComponent = getNodeIcon(node.type);
-  
-  return (
-    <div className="mb-1">
-      <div
-        style={{ paddingLeft: `${indentation}px` }}
-        className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer transition-all text-sm ${
-          isSelected 
-            ? 'ring-1 ring-blue-500 ' + getNodeColor(node)
-            : 'hover:bg-gray-800/50 ' + getNodeColor(node)
-        }`}
-        onClick={() => onNodeClick(node)}
-      >
-        {/* Connection Lines */}
-        {level > 0 && (
-          <div className="absolute left-0 flex">
-            {/* Vertical line from parent */}
-            <div 
-              className="border-l border-gray-600"
-              style={{ 
-                marginLeft: `${(level - 1) * 20 + 10}px`,
-                height: '100%',
-                width: '1px'
-              }}
-            />
-            {/* Horizontal line to node */}
-            <div 
-              className="border-t border-gray-600"
-              style={{ 
-                width: '10px',
-                height: '1px',
-                marginTop: '12px'
-              }}
-            />
-          </div>
-        )}
-        
-        {/* Expand/Collapse Button */}
-        {hasChildren ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpand(node.id);
-            }}
-            className="text-gray-400 hover:text-white p-0.5 relative z-10"
-          >
-            {isExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-          </button>
-        ) : (
-          <div className="w-4" /> // Spacer for alignment
-        )}
-        
-        {/* Node Icon */}
-        <IconComponent className="h-4 w-4 flex-shrink-0" />
-        
-        {/* Node Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium truncate">{node.name}</span>
-            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800/50 flex-shrink-0">
-              {node.type}
-            </span>
-            {node.status && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/50 flex-shrink-0">
-                {node.status}
-              </span>
-            )}
-          </div>
-          
-          {/* Additional Info */}
-          {(node.userCount !== undefined || node.droneCount !== undefined) && (
-            <div className="text-xs text-gray-400 mt-0.5 flex gap-2">
-              {node.userCount !== undefined && (
-                <span>👥 {node.userCount}</span>
-              )}
-              {node.droneCount !== undefined && (
-                <span>🚁 {node.droneCount}</span>
-              )}
-            </div>
-          )}
-        </div>
-        
-        {/* Connection Indicator */}
-        {hasChildren && (
-          <div className="text-gray-500 text-xs flex-shrink-0">
-            {node.children.length}
-          </div>
-        )}
-      </div>
+      cameraRotation.y += deltaMove.x * 0.01;
+      cameraRotation.x += deltaMove.y * 0.01;
+
+      // Limit vertical rotation
+      cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+
+      // Update camera position
+      const radius = 15;
+      camera.position.x = radius * Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x);
+      camera.position.y = radius * Math.sin(cameraRotation.x);
+      camera.position.z = radius * Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x);
+      camera.lookAt(0, 0, 0);
+
+      previousMousePosition = { x: event.clientX, y: event.clientY };
+    };
+
+    const handleMouseUp = () => {
+      isDragging = false;
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      const scale = event.deltaY > 0 ? 1.1 : 0.9;
+      camera.position.multiplyScalar(scale);
+      camera.position.clampLength(5, 50);
+    };
+
+    const handleClick = (event: MouseEvent) => {
+      if (isDragging) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycasterRef.current.setFromCamera(mouseRef.current, camera);
+      const intersects = raycasterRef.current.intersectObjects(Array.from(nodeObjectsRef.current.values()));
+
+      if (intersects.length > 0) {
+        const clickedObject = intersects[0].object as THREE.Mesh;
+        const nodeId = (clickedObject as any).userData.nodeId;
+        const node = nodes.find(n => n.id === nodeId);
+        if (node) {
+          onNodeClick(node);
+        }
+      }
+    };
+
+    renderer.domElement.addEventListener('mousedown', handleMouseDown);
+    renderer.domElement.addEventListener('mousemove', handleMouseMove);
+    renderer.domElement.addEventListener('mouseup', handleMouseUp);
+    renderer.domElement.addEventListener('wheel', handleWheel);
+    renderer.domElement.addEventListener('click', handleClick);
+
+    return () => {
+      renderer.domElement.removeEventListener('mousedown', handleMouseDown);
+      renderer.domElement.removeEventListener('mousemove', handleMouseMove);
+      renderer.domElement.removeEventListener('mouseup', handleMouseUp);
+      renderer.domElement.removeEventListener('wheel', handleWheel);
+      renderer.domElement.removeEventListener('click', handleClick);
       
-      {/* Children */}
-      {hasChildren && isExpanded && (
-        <div className="relative">
-          {/* Vertical line for children */}
-          {level >= 0 && (
-            <div 
-              className="absolute border-l border-gray-600"
-              style={{ 
-                left: `${level * 20 + 10}px`,
-                top: '0',
-                bottom: '0',
-                width: '1px'
-              }}
-            />
-          )}
-          <div className="mt-1">
-            {node.children.map((child, index) => (
-              <div key={child.id} className="relative">
-                {/* Connection dots */}
-                <div 
-                  className="absolute w-1 h-1 bg-gray-500 rounded-full"
-                  style={{ 
-                    left: `${level * 20 + 9.5}px`,
-                    top: '12px'
-                  }}
-                />
-                <TreeNode
-                  node={child}
-                  level={level + 1}
-                  onNodeClick={onNodeClick}
-                  selectedNode={selectedNode}
-                  expandedNodes={expandedNodes}
-                  onToggleExpand={onToggleExpand}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+      if (mountRef.current && renderer.domElement) {
+        mountRef.current.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+    };
+  }, []);
+
+  // Create and update nodes
+  useEffect(() => {
+    if (!sceneRef.current) return;
+
+    // Clear existing nodes
+    nodeObjectsRef.current.forEach(mesh => {
+      sceneRef.current!.remove(mesh);
+    });
+    nodeObjectsRef.current.clear();
+
+    // Create nodes
+    nodes.forEach(node => {
+      const geometry = new THREE.SphereGeometry(NODE_SIZES[node.type], 32, 32);
+      const material = new THREE.MeshPhongMaterial({ 
+        color: NODE_COLORS[node.type],
+        transparent: true,
+        opacity: 0.8,
+        shininess: 100
+      });
+
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(node.position.x, node.position.y, node.position.z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      
+      // Store node data
+      (mesh as any).userData = { nodeId: node.id };
+
+      // Add glow effect
+      const glowGeometry = new THREE.SphereGeometry(NODE_SIZES[node.type] * 1.2, 16, 16);
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: NODE_COLORS[node.type],
+        transparent: true,
+        opacity: 0.2
+      });
+      const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+      mesh.add(glowMesh);
+
+      sceneRef.current!.add(mesh);
+      nodeObjectsRef.current.set(node.id, mesh);
+    });
+  }, [nodes]);
+
+  // Create and update connections
+  useEffect(() => {
+    if (!sceneRef.current) return;
+
+    // Remove existing lines
+    if (lineObjectsRef.current) {
+      sceneRef.current.remove(lineObjectsRef.current);
+    }
+
+    // Create line group
+    const lineGroup = new THREE.Group();
+    lineObjectsRef.current = lineGroup;
+
+    connections.forEach(connection => {
+      const fromNode = nodes.find(n => n.id === connection.from);
+      const toNode = nodes.find(n => n.id === connection.to);
+
+      if (fromNode && toNode) {
+        const points = [
+          new THREE.Vector3(fromNode.position.x, fromNode.position.y, fromNode.position.z),
+          new THREE.Vector3(toNode.position.x, toNode.position.y, toNode.position.z)
+        ];
+
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        
+        // Color based on connection strength and node types
+        const fromColor = NODE_COLORS[fromNode.type];
+        const toColor = NODE_COLORS[toNode.type];
+        const lineColor = new THREE.Color().lerpColors(
+          new THREE.Color(fromColor),
+          new THREE.Color(toColor),
+          0.5
+        );
+
+        const material = new THREE.LineBasicMaterial({
+          color: lineColor,
+          transparent: true,
+          opacity: 0.3 + (connection.strength * 0.4),
+          linewidth: 1 + (connection.strength * 2)
+        });
+
+        const line = new THREE.Line(geometry, material);
+        lineGroup.add(line);
+      }
+    });
+
+    sceneRef.current.add(lineGroup);
+  }, [nodes, connections]);
+
+  // Update selected node highlight
+  useEffect(() => {
+    nodeObjectsRef.current.forEach((mesh, nodeId) => {
+      const isSelected = selectedNode?.id === nodeId;
+      const material = mesh.material as THREE.MeshPhongMaterial;
+      
+      if (isSelected) {
+        material.emissive.setHex(0x444444);
+        mesh.scale.setScalar(1.3);
+      } else {
+        material.emissive.setHex(0x000000);
+        mesh.scale.setScalar(1.0);
+      }
+    });
+  }, [selectedNode]);
+
+  // Animation loop
+  useEffect(() => {
+    const animate = () => {
+      frameRef.current = requestAnimationFrame(animate);
+
+      // Rotate nodes slightly
+      const time = Date.now() * 0.001;
+      nodeObjectsRef.current.forEach((mesh, nodeId) => {
+        mesh.rotation.y = time * 0.5;
+        mesh.rotation.x = Math.sin(time) * 0.1;
+      });
+
+      // Animate line opacity
+      if (lineObjectsRef.current) {
+        lineObjectsRef.current.children.forEach((line, index) => {
+          const material = (line as THREE.Line).material as THREE.LineBasicMaterial;
+          material.opacity = 0.3 + Math.sin(time * 2 + index) * 0.2;
+        });
+      }
+
+      if (rendererRef.current && cameraRef.current && sceneRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      }
+    };
+
+    animate();
+
+    return () => {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+    };
+  }, []);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (!mountRef.current || !cameraRef.current || !rendererRef.current) return;
+
+      const width = mountRef.current.clientWidth;
+      const height = mountRef.current.clientHeight;
+
+      cameraRef.current.aspect = width / height;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(width, height);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return <div ref={mountRef} className="w-full h-full" />;
 };
 
-// Detail Panel Component
+// Node Detail Panel Component
 const NodeDetailPanel: React.FC<{
-  node: HierarchyNode | null;
+  node: NetworkNode | null;
   onClose: () => void;
 }> = ({ node, onClose }) => {
   if (!node) return null;
-  
+
+  const getNodeIcon = (type: string) => {
+    switch (type) {
+      case 'MAIN_HQ': return Users;
+      case 'REGIONAL_HQ': return Shield;
+      case 'COMMANDER': return Shield;
+      case 'OPERATOR': return UserCheck;
+      case 'DRONE': return Plane;
+      default: return Users;
+    }
+  };
+
+  const getNodeColorClass = (type: string) => {
+    switch (type) {
+      case 'MAIN_HQ': return 'text-cyan-300';
+      case 'REGIONAL_HQ': return 'text-green-300';
+      case 'COMMANDER': return 'text-yellow-300';
+      case 'OPERATOR': return 'text-orange-300';
+      case 'DRONE': return 'text-red-300';
+      default: return 'text-gray-300';
+    }
+  };
+
   const IconComponent = getNodeIcon(node.type);
   
   return (
-    <div className="absolute top-4 right-4 w-80 bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg p-6 text-white z-20">
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${getNodeColor(node)}`}>
-            <IconComponent className="h-4 w-4" />
+    <div className="fixed top-4 right-4 w-96 z-30">
+      <div className="bg-gray-900/95 backdrop-blur-xl border border-gray-700/50 rounded-2xl p-6 text-white shadow-2xl">
+        <div className="flex justify-between items-start mb-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 rounded-xl bg-gray-800/50 border border-gray-600/30">
+              <IconComponent className={`h-6 w-6 ${getNodeColorClass(node.type)}`} />
+            </div>
+            <div>
+              <h3 className={`text-xl font-bold ${getNodeColorClass(node.type)}`}>{node.name}</h3>
+              <p className="text-sm text-gray-400">{node.type.replace('_', ' ')}</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-lg font-semibold">{node.name}</h3>
-            <p className="text-sm text-gray-400">{node.type}</p>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg bg-gray-800/50 hover:bg-gray-700/70 border border-gray-600/30 transition-all duration-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          {node.username && (
+            <div className="p-3 rounded-xl bg-gray-800/50 border border-gray-700/30">
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Username</label>
+              <p className="text-blue-300 font-medium">{node.username}</p>
+            </div>
+          )}
+          
+          {node.email && (
+            <div className="p-3 rounded-xl bg-gray-800/50 border border-gray-700/30">
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Email</label>
+              <p className="text-green-300 font-medium">{node.email}</p>
+            </div>
+          )}
+          
+          {node.area && (
+            <div className="p-3 rounded-xl bg-gray-800/50 border border-gray-700/30">
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Area</label>
+              <p className="text-purple-300 font-medium">{node.area}</p>
+            </div>
+          )}
+          
+          {node.model && (
+            <div className="p-3 rounded-xl bg-gray-800/50 border border-gray-700/30">
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Model</label>
+              <p className="text-green-300 font-medium">{node.model}</p>
+            </div>
+          )}
+          
+          {node.status && (
+            <div className="p-3 rounded-xl bg-gray-800/50 border border-gray-700/30">
+              <label className="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Status</label>
+              <span className={`
+                inline-block px-3 py-1 rounded-lg text-sm font-medium
+                ${node.status === 'ACTIVE' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+                  node.status === 'STANDBY' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
+                  node.status === 'MAINTENANCE' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                  node.status === 'OFFLINE' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                  'bg-gray-500/20 text-gray-300 border border-gray-500/30'}
+              `}>
+                {node.status}
+              </span>
+            </div>
+          )}
+
+          <div className="p-3 rounded-xl bg-gradient-to-r from-gray-800/50 to-gray-700/30 border border-gray-600/30">
+            <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wide">Connections</label>
+            <div className="text-center">
+              <Network className="h-4 w-4 text-purple-400 mx-auto mb-1" />
+              <p className="text-purple-300 font-bold text-lg">{node.connections.length}</p>
+              <p className="text-xs text-gray-400">Connected Nodes</p>
+            </div>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="text-gray-400 hover:text-white transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      
-      <div className="space-y-3">
-        {node.username && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Username</label>
-            <p className="text-sm text-blue-300">{node.username}</p>
-          </div>
-        )}
-        
-        {node.email && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Email</label>
-            <p className="text-sm">{node.email}</p>
-          </div>
-        )}
-        
-        {node.area && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Area</label>
-            <p className="text-sm">{node.area}</p>
-          </div>
-        )}
-        
-        {node.commanderName && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Commander</label>
-            <p className="text-sm">{node.commanderName}</p>
-          </div>
-        )}
-        
-        {node.model && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Model</label>
-            <p className="text-sm">{node.model}</p>
-          </div>
-        )}
-        
-        {node.status && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Status</label>
-            <span className={`text-sm px-2 py-1 rounded-md ${getNodeColor(node)}`}>
-              {node.status}
-            </span>
-          </div>
-        )}
-        
-        {node.role && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Role</label>
-            <p className="text-sm">{node.role}</p>
-          </div>
-        )}
-        
-        {node.userCount !== undefined && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Users</label>
-            <p className="text-sm">{node.userCount} personnel</p>
-          </div>
-        )}
-        
-        {node.droneCount !== undefined && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Drones</label>
-            <p className="text-sm">{node.droneCount} units</p>
-          </div>
-        )}
-        
-        {node.children && node.children.length > 0 && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Children</label>
-            <p className="text-sm">{node.children.length} connected nodes</p>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -329,435 +494,329 @@ const HierarchyTree3D: React.FC<{
   onClose: () => void;
   token: string;
 }> = ({ isOpen, onClose, token }) => {
-  const [selectedNode, setSelectedNode] = useState<HierarchyNode | null>(null);
-  const [hierarchyData, setHierarchyData] = useState<HierarchyNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<NetworkNode | null>(null);
+  const [networkData, setNetworkData] = useState<{ nodes: NetworkNode[]; connections: Connection[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['main-hq']));
-  
-  // Transform API data to hierarchy structure - ENHANCED WITH DEBUGGING
-  const transformDataToHierarchy = useCallback((users: any[], regions: any[], drones: any[]): HierarchyNode => {
-    console.log('🔍 HIERARCHY TRANSFORMATION DEBUG');
-    console.log('==================================');
-    console.log('Raw data received:', { users: users.length, regions: regions.length, drones: drones.length });
-    
-    // Debug: Show sample data
-    console.log('Sample user:', users[0]);
-    console.log('Sample region:', regions[0]);
-    console.log('Sample drone:', drones[0]);
-    
-    // Debug: Show user roles
-    const usersByRole = users.reduce((acc: any, user: any) => {
-      acc[user.role] = (acc[user.role] || 0) + 1;
-      return acc;
-    }, {});
-    console.log('Users by role:', usersByRole);
-    
-    // Debug: Show user-region relationships
-    const usersByRegion = users.reduce((acc: any, user: any) => {
-      const regionKey = user.regionId || 'no-region';
-      acc[regionKey] = (acc[regionKey] || 0) + 1;
-      return acc;
-    }, {});
-    console.log('Users by region:', usersByRegion);
 
-    // Create Main HQ root node
-    const mainHQ: HierarchyNode = {
-      id: 'main-hq',
-      type: 'MAIN_HQ',
-      name: 'Main Command Center',
-      username: 'main_admin',
-      email: 'main@flyos.mil',
-      role: 'MAIN_HQ',
-      children: []
-    };
-
-    // Add Main HQ users first (users with MAIN_HQ role or no region)
-    const mainHQUsers = users.filter((user: any) => user.role === 'MAIN_HQ');
-    console.log('Main HQ users found:', mainHQUsers.length, mainHQUsers.map(u => u.username));
-
-    // Process each region
-    console.log('\n🌍 PROCESSING REGIONS:');
-    regions.forEach((region: any, regionIndex: number) => {
-      console.log(`\nRegion ${regionIndex + 1}: ${region.name} (${region.id})`);
+  // Create mock network data
+  const createMockNetworkData = useCallback(() => {
+    const nodes: NetworkNode[] = [
+      // Main HQ
+      {
+        id: 'main-hq',
+        type: 'MAIN_HQ',
+        name: 'Main Command Center',
+        username: 'main_admin',
+        email: 'main@flyos.mil',
+        position: { x: 0, y: 0, z: 0 },
+        connections: ['regional-hq-1', 'regional-hq-2', 'regional-hq-3'],
+        userCount: 25,
+        droneCount: 150
+      },
       
-      const regionNode: HierarchyNode = {
-        id: region.id,
-        type: 'REGION',
-        name: region.name,
-        area: region.area,
-        commanderName: region.commanderName,
-        status: region.status,
-        children: []
-      };
-
-      // Find users in this region
-      const regionUsers = users.filter((user: any) => user.regionId === region.id);
-      const regionDrones = drones.filter((drone: any) => drone.regionId === region.id);
+      // Regional HQs
+      {
+        id: 'regional-hq-1',
+        type: 'REGIONAL_HQ',
+        name: 'North Regional HQ',
+        area: 'Northern Operations Zone',
+        position: { x: -4, y: 3, z: 2 },
+        connections: ['main-hq', 'commander-1', 'commander-2']
+      },
+      {
+        id: 'regional-hq-2',
+        type: 'REGIONAL_HQ',
+        name: 'South Regional HQ',
+        area: 'Southern Operations Zone',
+        position: { x: 4, y: -2, z: 1 },
+        connections: ['main-hq', 'commander-3', 'commander-4']
+      },
+      {
+        id: 'regional-hq-3',
+        type: 'REGIONAL_HQ',
+        name: 'East Regional HQ',
+        area: 'Eastern Operations Zone',
+        position: { x: 2, y: 4, z: -3 },
+        connections: ['main-hq', 'commander-5']
+      },
       
-      console.log(`  Users in region: ${regionUsers.length}`);
-      regionUsers.forEach(user => console.log(`    - ${user.fullName} (${user.role}) - ${user.username}`));
+      // Commanders
+      {
+        id: 'commander-1',
+        type: 'COMMANDER',
+        name: 'Col. Sarah Mitchell',
+        username: 'sarah.mitchell',
+        email: 'sarah.mitchell@flyos.mil',
+        position: { x: -6, y: 1, z: 4 },
+        connections: ['regional-hq-1', 'operator-1', 'operator-2']
+      },
+      {
+        id: 'commander-2',
+        type: 'COMMANDER',
+        name: 'Maj. Robert Chen',
+        username: 'robert.chen',
+        email: 'robert.chen@flyos.mil',
+        position: { x: -2, y: 5, z: 0 },
+        connections: ['regional-hq-1', 'operator-3']
+      },
+      {
+        id: 'commander-3',
+        type: 'COMMANDER',
+        name: 'Lt. Col. Maria Santos',
+        username: 'maria.santos',
+        email: 'maria.santos@flyos.mil',
+        position: { x: 6, y: -4, z: 3 },
+        connections: ['regional-hq-2', 'operator-4', 'operator-5']
+      },
+      {
+        id: 'commander-4',
+        type: 'COMMANDER',
+        name: 'Maj. James Wilson',
+        username: 'james.wilson',
+        email: 'james.wilson@flyos.mil',
+        position: { x: 2, y: -5, z: -1 },
+        connections: ['regional-hq-2', 'operator-6']
+      },
+      {
+        id: 'commander-5',
+        type: 'COMMANDER',
+        name: 'Col. Lisa Park',
+        username: 'lisa.park',
+        email: 'lisa.park@flyos.mil',
+        position: { x: 4, y: 6, z: -5 },
+        connections: ['regional-hq-3', 'operator-7', 'operator-8']
+      },
       
-      console.log(`  Drones in region: ${regionDrones.length}`);
-      regionDrones.forEach(drone => console.log(`    - ${drone.id} (${drone.status}) - Operator: ${drone.operatorId || 'none'}`));
-      
-      // Add counts to region
-      regionNode.userCount = regionUsers.length;
-      regionNode.droneCount = regionDrones.length;
-
-      // Find regional commander
-      const commanders = regionUsers.filter((user: any) => user.role === 'REGIONAL_HQ');
-      console.log(`  Commanders found: ${commanders.length}`);
-      
-      if (commanders.length > 0) {
-        // Use the first commander found
-        const commander = commanders[0];
-        console.log(`  Using commander: ${commander.fullName}`);
-        
-        const commanderNode: HierarchyNode = {
-          id: commander.id,
-          type: 'REGIONAL_HQ',
-          name: commander.fullName,
-          username: commander.username,
-          email: commander.email,
-          role: commander.role,
-          status: commander.status,
-          children: []
-        };
-
-        // Find operators in this region
-        const operators = regionUsers.filter((user: any) => user.role === 'OPERATOR');
-        console.log(`  Operators found: ${operators.length}`);
-        
-        operators.forEach((operator: any, opIndex: number) => {
-          console.log(`    Operator ${opIndex + 1}: ${operator.fullName} (${operator.id})`);
-          
-          const operatorNode: HierarchyNode = {
-            id: operator.id,
-            type: 'OPERATOR',
-            name: operator.fullName,
-            username: operator.username,
-            email: operator.email,
-            role: operator.role,
-            status: operator.status,
-            children: []
-          };
-
-          // Find drones assigned to this operator
-          const operatorDrones = regionDrones.filter((drone: any) => drone.operatorId === operator.id);
-          console.log(`      Drones assigned to ${operator.fullName}: ${operatorDrones.length}`);
-          
-          operatorDrones.forEach((drone: any) => {
-            console.log(`        - ${drone.id} (${drone.status})`);
-            const droneNode: HierarchyNode = {
-              id: drone.id,
-              type: 'DRONE',
-              name: drone.id,
-              model: drone.model,
-              status: drone.status,
-              children: []
-            };
-            operatorNode.children.push(droneNode);
-          });
-
-          commanderNode.children.push(operatorNode);
-        });
-
-        // Add unassigned drones in this region directly to commander
-        const unassignedRegionDrones = regionDrones.filter((drone: any) => !drone.operatorId);
-        console.log(`  Unassigned drones in region: ${unassignedRegionDrones.length}`);
-        
-        unassignedRegionDrones.forEach((drone: any) => {
-          console.log(`    - ${drone.id} (unassigned)`);
-          const droneNode: HierarchyNode = {
-            id: `unassigned-${drone.id}`,
-            type: 'DRONE',
-            name: `${drone.id} (Unassigned)`,
-            model: drone.model,
-            status: drone.status,
-            children: []
-          };
-          commanderNode.children.push(droneNode);
-        });
-
-        regionNode.children.push(commanderNode);
-        
-        // Add any additional commanders as separate nodes
-        if (commanders.length > 1) {
-          for (let i = 1; i < commanders.length; i++) {
-            const additionalCommander = commanders[i];
-            const additionalCommanderNode: HierarchyNode = {
-              id: additionalCommander.id,
-              type: 'REGIONAL_HQ',
-              name: additionalCommander.fullName,
-              username: additionalCommander.username,
-              email: additionalCommander.email,
-              role: additionalCommander.role,
-              status: additionalCommander.status,
-              children: []
-            };
-            regionNode.children.push(additionalCommanderNode);
-          }
-        }
-        
-      } else {
-        console.log(`  No commander found - adding users and drones directly to region`);
-        
-        // No commander - add users directly to region
-        regionUsers.forEach((user: any) => {
-          console.log(`    Adding user directly: ${user.fullName} (${user.role})`);
-          const userNode: HierarchyNode = {
-            id: user.id,
-            type: user.role === 'REGIONAL_HQ' ? 'REGIONAL_HQ' : 'OPERATOR',
-            name: user.fullName,
-            username: user.username,
-            email: user.email,
-            role: user.role,
-            status: user.status,
-            children: []
-          };
-          
-          // If this is an operator, add their drones
-          if (user.role === 'OPERATOR') {
-            const operatorDrones = regionDrones.filter((drone: any) => drone.operatorId === user.id);
-            operatorDrones.forEach((drone: any) => {
-              const droneNode: HierarchyNode = {
-                id: drone.id,
-                type: 'DRONE',
-                name: drone.id,
-                model: drone.model,
-                status: drone.status,
-                children: []
-              };
-              userNode.children.push(droneNode);
-            });
-          }
-          
-          regionNode.children.push(userNode);
-        });
-
-        // Add unassigned drones to region
-        const unassignedRegionDrones = regionDrones.filter((drone: any) => !drone.operatorId);
-        unassignedRegionDrones.forEach((drone: any) => {
-          console.log(`    Adding unassigned drone: ${drone.id}`);
-          const droneNode: HierarchyNode = {
-            id: drone.id,
-            type: 'DRONE',
-            name: drone.id,
-            model: drone.model,
-            status: drone.status,
-            children: []
-          };
-          regionNode.children.push(droneNode);
-        });
+      // Operators
+      {
+        id: 'operator-1',
+        type: 'OPERATOR',
+        name: 'Lt. John Davis',
+        username: 'john.davis',
+        email: 'john.davis@flyos.mil',
+        position: { x: -8, y: -1, z: 6 },
+        connections: ['commander-1', 'drone-1', 'drone-2', 'drone-3']
+      },
+      {
+        id: 'operator-2',
+        type: 'OPERATOR',
+        name: 'Capt. Emma Thompson',
+        username: 'emma.thompson',
+        email: 'emma.thompson@flyos.mil',
+        position: { x: -4, y: 3, z: 6 },
+        connections: ['commander-1', 'drone-4', 'drone-5']
+      },
+      {
+        id: 'operator-3',
+        type: 'OPERATOR',
+        name: 'Lt. Michael Brown',
+        username: 'michael.brown',
+        email: 'michael.brown@flyos.mil',
+        position: { x: -1, y: 7, z: 2 },
+        connections: ['commander-2', 'drone-6', 'drone-7']
+      },
+      {
+        id: 'operator-4',
+        type: 'OPERATOR',
+        name: 'Capt. Anna Rodriguez',
+        username: 'anna.rodriguez',
+        email: 'anna.rodriguez@flyos.mil',
+        position: { x: 8, y: -6, z: 5 },
+        connections: ['commander-3', 'drone-8', 'drone-9', 'drone-10']
+      },
+      {
+        id: 'operator-5',
+        type: 'OPERATOR',
+        name: 'Lt. David Kim',
+        username: 'david.kim',
+        email: 'david.kim@flyos.mil',
+        position: { x: 4, y: -2, z: 4 },
+        connections: ['commander-3', 'drone-11', 'drone-12']
+      },
+      {
+        id: 'operator-6',
+        type: 'OPERATOR',
+        name: 'Capt. Rachel Green',
+        username: 'rachel.green',
+        email: 'rachel.green@flyos.mil',
+        position: { x: 0, y: -7, z: -3 },
+        connections: ['commander-4', 'drone-13', 'drone-14']
+      },
+      {
+        id: 'operator-7',
+        type: 'OPERATOR',
+        name: 'Lt. Alex Turner',
+        username: 'alex.turner',
+        email: 'alex.turner@flyos.mil',
+        position: { x: 6, y: 8, z: -7 },
+        connections: ['commander-5', 'drone-15', 'drone-16']
+      },
+      {
+        id: 'operator-8',
+        type: 'OPERATOR',
+        name: 'Capt. Sofia Martinez',
+        username: 'sofia.martinez',
+        email: 'sofia.martinez@flyos.mil',
+        position: { x: 2, y: 4, z: -7 },
+        connections: ['commander-5', 'drone-17', 'drone-18', 'drone-19']
       }
+    ];
 
-      console.log(`  Region ${region.name} final children: ${regionNode.children.length}`);
-      mainHQ.children.push(regionNode);
-    });
+    // Add Drones
+    const droneNames = [
+      'HAWK-001', 'EAGLE-002', 'FALCON-003', 'RAVEN-004', 'PHOENIX-005',
+      'STORM-006', 'THUNDER-007', 'VIPER-008', 'GHOST-009', 'HUNTER-010',
+      'SHADOW-011', 'BLADE-012', 'FURY-013', 'STRIKE-014', 'RECON-015',
+      'SCOUT-016', 'GUARDIAN-017', 'SENTINEL-018', 'PROWLER-019'
+    ];
 
-    // Add unassigned drones (no region)
-    console.log('\n🚁 PROCESSING UNASSIGNED DRONES:');
-    const unassignedDrones = drones.filter((drone: any) => !drone.regionId);
-    console.log(`Unassigned drones found: ${unassignedDrones.length}`);
-    
-    if (unassignedDrones.length > 0) {
-      const unassignedNode: HierarchyNode = {
-        id: 'unassigned-assets',
-        type: 'UNASSIGNED',
-        name: 'Unassigned Assets',
-        droneCount: unassignedDrones.length,
-        children: []
-      };
+    const droneModels = ['Predator MQ-9', 'Global Hawk', 'Reaper MQ-9', 'Predator MQ-1'];
+    const droneStatuses = ['ACTIVE', 'STANDBY', 'MAINTENANCE', 'OFFLINE'];
 
-      unassignedDrones.forEach((drone: any) => {
-        console.log(`  - ${drone.id} (${drone.status})`);
-        const droneNode: HierarchyNode = {
-          id: drone.id,
+    // Create drones with positions around their operators
+    const operators = nodes.filter(n => n.type === 'OPERATOR');
+    let droneIndex = 0;
+
+    operators.forEach((operator, opIndex) => {
+      const droneCount = operator.connections.filter(id => id.startsWith('drone-')).length;
+      
+      for (let i = 0; i < droneCount; i++) {
+        const angle = (i / droneCount) * Math.PI * 2;
+        const radius = 2;
+        const droneId = `drone-${droneIndex + 1}`;
+        
+        nodes.push({
+          id: droneId,
           type: 'DRONE',
-          name: drone.id,
-          model: drone.model,
-          status: drone.status,
-          children: []
-        };
-        unassignedNode.children.push(droneNode);
-      });
-
-      mainHQ.children.push(unassignedNode);
-    }
-
-    // Add unassigned users (no region, not MAIN_HQ)
-    console.log('\n👥 PROCESSING UNASSIGNED USERS:');
-    const unassignedUsers = users.filter((user: any) => !user.regionId && user.role !== 'MAIN_HQ');
-    console.log(`Unassigned users found: ${unassignedUsers.length}`);
-    
-    if (unassignedUsers.length > 0) {
-      const unassignedUsersNode: HierarchyNode = {
-        id: 'unassigned-users',
-        type: 'UNASSIGNED',
-        name: 'Unassigned Personnel',
-        userCount: unassignedUsers.length,
-        children: []
-      };
-
-      unassignedUsers.forEach((user: any) => {
-        console.log(`  - ${user.fullName} (${user.role})`);
-        const userNode: HierarchyNode = {
-          id: user.id,
-          type: user.role === 'REGIONAL_HQ' ? 'REGIONAL_HQ' : 'OPERATOR',
-          name: user.fullName,
-          username: user.username,
-          email: user.email,
-          role: user.role,
-          status: user.status,
-          children: []
-        };
-        
-        // Add any drones assigned to this unassigned user
-        const userDrones = drones.filter((drone: any) => drone.operatorId === user.id);
-        userDrones.forEach((drone: any) => {
-          const droneNode: HierarchyNode = {
-            id: drone.id,
-            type: 'DRONE',
-            name: drone.id,
-            model: drone.model,
-            status: drone.status,
-            children: []
-          };
-          userNode.children.push(droneNode);
+          name: droneNames[droneIndex] || `DRONE-${droneIndex + 1}`,
+          model: droneModels[droneIndex % droneModels.length],
+          status: droneStatuses[droneIndex % droneStatuses.length],
+          position: {
+            x: operator.position.x + Math.cos(angle) * radius,
+            y: operator.position.y + Math.sin(angle) * radius,
+            z: operator.position.z + (Math.random() - 0.5) * 2
+          },
+          connections: [operator.id]
         });
         
-        unassignedUsersNode.children.push(userNode);
-      });
-
-      mainHQ.children.push(unassignedUsersNode);
-    }
-
-    console.log('\n📊 FINAL HIERARCHY SUMMARY:');
-    console.log(`Main HQ children: ${mainHQ.children.length}`);
-    mainHQ.children.forEach((child, idx) => {
-      console.log(`  ${idx + 1}. ${child.name} (${child.type}) - ${child.children?.length || 0} children`);
-      if (child.children && child.children.length > 0) {
-        child.children.forEach((grandchild, gidx) => {
-          console.log(`     ${gidx + 1}. ${grandchild.name} (${grandchild.type}) - ${grandchild.children?.length || 0} children`);
-        });
+        droneIndex++;
       }
     });
+
+    // Create connections
+    const connections: Connection[] = [];
     
-    console.log('Generated hierarchy:', mainHQ);
-    return mainHQ;
+    nodes.forEach(node => {
+      node.connections.forEach(targetId => {
+        // Only create connection if it doesn't already exist in reverse
+        const existingConnection = connections.find(
+          c => (c.from === node.id && c.to === targetId) || 
+               (c.from === targetId && c.to === node.id)
+        );
+        
+        if (!existingConnection) {
+          // Calculate connection strength based on node types
+          let strength = 0.5;
+          if (node.type === 'MAIN_HQ' || targetId === 'main-hq') strength = 1.0;
+          else if (node.type === 'REGIONAL_HQ' || nodes.find(n => n.id === targetId)?.type === 'REGIONAL_HQ') strength = 0.8;
+          else if (node.type === 'COMMANDER' || nodes.find(n => n.id === targetId)?.type === 'COMMANDER') strength = 0.6;
+          else if (node.type === 'OPERATOR' || nodes.find(n => n.id === targetId)?.type === 'OPERATOR') strength = 0.4;
+          
+          connections.push({
+            from: node.id,
+            to: targetId,
+            strength
+          });
+        }
+      });
+    });
+
+    return { nodes, connections };
   }, []);
 
-  // Fetch data from frontend API routes - SIMPLIFIED
-  const fetchHierarchyData = useCallback(async () => {
-    if (!token) return;
-    
+  // For now, just use mock data
+  const initializeMockData = useCallback(() => {
     setLoading(true);
-    setError(null);
-    
-    try {
-      console.log('Fetching hierarchy data...');
-
-      // Fetch all data in parallel - using the frontend API routes
-      const [usersResponse, regionsResponse, dronesResponse] = await Promise.all([
-        fetch('/api/users', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch('/api/regions', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch('/api/drones', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-      ]);
-
-      console.log('Response status:', {
-        users: usersResponse.status,
-        regions: regionsResponse.status,
-        drones: dronesResponse.status
-      });
-
-      if (!usersResponse.ok || !regionsResponse.ok || !dronesResponse.ok) {
-        throw new Error('Failed to fetch hierarchy data - one or more endpoints failed');
-      }
-
-      const [usersData, regionsData, dronesData] = await Promise.all([
-        usersResponse.json(),
-        regionsResponse.json(),
-        dronesResponse.json()
-      ]);
-
-      console.log('Parsed data:', {
-        usersData,
-        regionsData,
-        dronesData
-      });
-
-      // Extract the actual arrays from the API responses
-      // Based on the user management service, these should be:
-      // users: { users: User[], totalCount: number, ... }
-      // regions: { success: true, regions: Region[] } or Region[]
-      // drones: { drones: Drone[], totalCount: number, ... }
-      
-      let users = [];
-      let regions = [];
-      let drones = [];
-
-      // Handle users response
-      if (usersData.users) {
-        users = usersData.users;
-      } else if (Array.isArray(usersData)) {
-        users = usersData;
-      } else {
-        console.warn('Unexpected users data format:', usersData);
-        users = [];
-      }
-
-      // Handle regions response  
-      if (regionsData.regions) {
-        regions = regionsData.regions;
-      } else if (Array.isArray(regionsData)) {
-        regions = regionsData;
-      } else {
-        console.warn('Unexpected regions data format:', regionsData);
-        regions = [];
-      }
-
-      // Handle drones response
-      if (dronesData.drones) {
-        drones = dronesData.drones;
-      } else if (Array.isArray(dronesData)) {
-        drones = dronesData;
-      } else {
-        console.warn('Unexpected drones data format:', dronesData);
-        drones = [];
-      }
-
-      console.log('Extracted arrays:', {
-        users: users.length,
-        regions: regions.length,
-        drones: drones.length
-      });
-
-      // Transform the data into hierarchy
-      const hierarchy = transformDataToHierarchy(users, regions, drones);
-      setHierarchyData(hierarchy);
-      
-    } catch (err: any) {
-      console.error('Error fetching hierarchy data:', err);
-      setError(err.message || 'Failed to load hierarchy data');
-    } finally {
+    // Simulate loading delay
+    setTimeout(() => {
+      setNetworkData(createMockNetworkData());
       setLoading(false);
-    }
-  }, [token, transformDataToHierarchy]);
+    }, 1000);
+  }, [createMockNetworkData]);
+
+  // Transform API data to network structure - COMMENTED FOR NOW, WILL USE LATER
+  // const transformDataToNetwork = useCallback((users: any[], regions: any[], drones: any[]): { nodes: NetworkNode[]; connections: Connection[] } => {
+  //   console.log('🔍 NETWORK TRANSFORMATION DEBUG');
+  //   const nodes: NetworkNode[] = [];
+  //   const connections: Connection[] = [];
+    
+  //   // Create Main HQ node
+  //   nodes.push({
+  //     id: 'main-hq',
+  //     type: 'MAIN_HQ',
+  //     name: 'Main Command Center',
+  //     position: { x: 0, y: 0, z: 0 },
+  //     connections: []
+  //   });
+    
+  //   // Process regions, users, and drones into network nodes
+  //   // Add positioning algorithm to spread nodes in 3D space
+  //   // Calculate connections based on relationships
+    
+  //   return { nodes, connections };
+  // }, []);
+
+  // Fetch data from API - COMMENTED FOR NOW, WILL USE LATER  
+  // const fetchNetworkData = useCallback(async () => {
+  //   if (!token) {
+  //     setNetworkData(createMockNetworkData());
+  //     return;
+  //   }
+    
+  //   setLoading(true);
+  //   setError(null);
+    
+  //   try {
+  //     const [usersResponse, regionsResponse, dronesResponse] = await Promise.all([
+  //       fetch('/api/users', { headers: { 'Authorization': `Bearer ${token}` } }),
+  //       fetch('/api/regions', { headers: { 'Authorization': `Bearer ${token}` } }),
+  //       fetch('/api/drones', { headers: { 'Authorization': `Bearer ${token}` } })
+  //     ]);
+
+  //     if (!usersResponse.ok || !regionsResponse.ok || !dronesResponse.ok) {
+  //       throw new Error('Failed to fetch network data');
+  //     }
+
+  //     const [usersData, regionsData, dronesData] = await Promise.all([
+  //       usersResponse.json(),
+  //       regionsResponse.json(),
+  //       dronesResponse.json()
+  //     ]);
+
+  //     let users = usersData.users || usersData || [];
+  //     let regions = regionsData.regions || regionsData || [];
+  //     let drones = dronesData.drones || dronesData || [];
+
+  //     const networkData = transformDataToNetwork(users, regions, drones);
+  //     setNetworkData(networkData);
+      
+  //   } catch (err: any) {
+  //     console.error('Error fetching network data:', err);
+  //     setError(err.message || 'Failed to load network data');
+  //     setNetworkData(createMockNetworkData());
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // }, [token, transformDataToNetwork, createMockNetworkData]);
 
   useEffect(() => {
-    if (isOpen && token) {
-      fetchHierarchyData();
+    if (isOpen) {
+      initializeMockData();
     }
-  }, [isOpen, token, fetchHierarchyData]);
+  }, [isOpen, initializeMockData]);
 
-  const handleNodeClick = useCallback((node: HierarchyNode) => {
+  const handleNodeClick = useCallback((node: NetworkNode) => {
     setSelectedNode(node);
   }, []);
   
@@ -765,181 +824,187 @@ const HierarchyTree3D: React.FC<{
     setSelectedNode(null);
   }, []);
 
-  const handleToggleExpand = useCallback((nodeId: string) => {
-    setExpandedNodes(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(nodeId)) {
-        newSet.delete(nodeId);
-      } else {
-        newSet.add(nodeId);
-      }
-      return newSet;
-    });
-  }, []);
-
-  const handleExpandAll = useCallback(() => {
-    if (!hierarchyData) return;
-    
-    const allNodeIds = new Set<string>();
-    const traverse = (node: HierarchyNode) => {
-      allNodeIds.add(node.id);
-      node.children?.forEach(traverse);
-    };
-    traverse(hierarchyData);
-    
-    setExpandedNodes(allNodeIds);
-  }, [hierarchyData]);
-
-  const handleCollapseAll = useCallback(() => {
-    setExpandedNodes(new Set(['main-hq'])); // Keep main HQ expanded
-  }, []);
-
   const handleRefresh = useCallback(() => {
-    fetchHierarchyData();
-  }, [fetchHierarchyData]);
-  
+    initializeMockData();
+  }, [initializeMockData]);
+
   if (!isOpen) return null;
   
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm">
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 bg-gray-900/80 backdrop-blur-sm border-b border-gray-700 p-4">
+    <div className="fixed inset-0 z-50 bg-black">
+      {/* Modern Header */}
+      <div className="absolute top-0 left-0 right-0 z-10 bg-gray-900/80 backdrop-blur-xl border-b border-gray-700/50 p-4">
         <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <Globe className="h-5 w-5 text-blue-400" />
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl shadow-lg">
+              <Network className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">Command Hierarchy</h2>
-              <p className="text-sm text-gray-400">Interactive tree view of the FlyOS command structure</p>
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                3D Command Network
+              </h2>
+              <p className="text-sm text-gray-400">Interactive neural network visualization of command hierarchy</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExpandAll}
-              className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors text-white"
-              title="Expand All"
-            >
-              Expand All
-            </button>
-            
-            <button
-              onClick={handleCollapseAll}
-              className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors text-white"
-              title="Collapse All"
-            >
-              Collapse All
-            </button>
-            
+          <div className="flex items-center gap-3">
             <button
               onClick={handleRefresh}
               disabled={loading}
-              className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors text-white disabled:opacity-50"
-              title="Refresh Data"
+              className="p-2 bg-gray-800/50 hover:bg-gray-700/70 rounded-xl transition-all duration-200 text-white disabled:opacity-50 border border-gray-600/30"
+              title="Refresh Network"
             >
-              <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <RotateCcw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
             
             <button
               onClick={() => {
-                console.log('Current hierarchy data:', hierarchyData);
-                console.log('Expanded nodes:', expandedNodes);
+                console.log('Current network data:', networkData);
               }}
-              className="p-2 bg-purple-800 hover:bg-purple-700 rounded-lg transition-colors text-white"
-              title="Debug Info (Check Console)"
+              className="p-2 bg-purple-800/50 hover:bg-purple-700/70 rounded-xl transition-all duration-200 text-white border border-purple-600/30"
+              title="Debug Network (Check Console)"
             >
-              <Zap className="h-4 w-4" />
+              <Zap className="h-5 w-5" />
             </button>
             
             <button
               onClick={onClose}
-              className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors text-white"
+              className="p-2 bg-red-800/50 hover:bg-red-700/70 rounded-xl transition-all duration-200 text-white border border-red-600/30"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
           </div>
         </div>
       </div>
-      
-      {/* Controls Legend */}
-      <div className="absolute bottom-4 left-4 z-10 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg p-4 text-white">
-        <h4 className="font-semibold mb-2 flex items-center gap-2">
-          <Info className="h-4 w-4" />
-          Tree View
+
+      {/* Network Legend */}
+      <div className="absolute bottom-6 left-6 z-10 bg-gray-900/80 backdrop-blur-xl border border-gray-700/50 rounded-2xl p-5 text-white shadow-2xl">
+        <h4 className="font-semibold mb-3 flex items-center gap-2 text-cyan-300">
+          <Eye className="h-4 w-4" />
+          Network Legend
         </h4>
-        <div className="space-y-1 text-sm text-gray-300">
-          <p>• Click to select node</p>
-          <p>• Use chevrons to expand/collapse</p>
-          <p>• Selected node shows details</p>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-4 h-4 bg-cyan-400 rounded-full shadow-lg"></div>
+            <span>Main HQ</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg"></div>
+            <span>Regional HQ</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 bg-yellow-400 rounded-full shadow-lg"></div>
+            <span>Commander</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 bg-orange-400 rounded-full shadow-lg"></div>
+            <span>Operator</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 bg-red-400 rounded-full shadow-lg"></div>
+            <span>Drone</span>
+          </div>
         </div>
       </div>
-      
-      {/* Loading/Error States */}
+
+      {/* Controls Guide */}
+      <div className="absolute bottom-6 right-6 z-10 bg-gray-900/80 backdrop-blur-xl border border-gray-700/50 rounded-2xl p-5 text-white shadow-2xl">
+        <h4 className="font-semibold mb-3 flex items-center gap-2 text-purple-300">
+          <MousePointer className="h-4 w-4" />
+          Controls
+        </h4>
+        <div className="space-y-2 text-sm text-gray-300">
+          <div>• Drag to rotate view</div>
+          <div>• Scroll to zoom</div>
+          <div>• Click nodes for details</div>
+          <div>• Watch the neural network animate</div>
+        </div>
+      </div>
+
+      {/* Network Statistics */}
+      {networkData && (
+        <div className="absolute top-20 left-6 z-10 bg-gray-900/80 backdrop-blur-xl border border-gray-700/50 rounded-2xl p-4 text-white shadow-2xl">
+          <h4 className="font-semibold mb-3 text-green-300">Network Stats</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Total Nodes:</span>
+              <span className="text-cyan-300 font-bold">{networkData.nodes.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Connections:</span>
+              <span className="text-green-300 font-bold">{networkData.connections.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Regions:</span>
+              <span className="text-yellow-300 font-bold">{networkData.nodes.filter(n => n.type === 'REGIONAL_HQ').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Drones:</span>
+              <span className="text-red-300 font-bold">{networkData.nodes.filter(n => n.type === 'DRONE').length}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading State */}
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-white">
-            <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
-              <span>Loading hierarchy data...</span>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="bg-red-900/90 backdrop-blur-sm border border-red-700 rounded-lg p-8 text-white max-w-md">
-            <h3 className="font-semibold mb-2">Error Loading Data</h3>
-            <p className="text-sm text-red-200 mb-4">{error}</p>
-            <div className="text-xs text-red-300 mb-4">
-              Check the browser console for detailed error information.
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleRefresh}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded transition-colors"
-              >
-                Retry
-              </button>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Tree View */}
-      {hierarchyData && !loading && !error && (
-        <div className="absolute inset-0 pt-20 pb-4">
-          <div className="h-full flex">
-            <div className="flex-1 overflow-auto p-6">
-              <div className="mb-4 text-sm text-gray-400 bg-gray-800/50 p-3 rounded-lg">
-                <div className="font-medium mb-2">Hierarchy Status:</div>
-                <div>Main HQ Children: {hierarchyData.children?.length || 0}</div>
-                {hierarchyData.children?.map((child, idx) => (
-                  <div key={child.id} className="ml-2">
-                    {idx + 1}. {child.name} ({child.type}) - {child.children?.length || 0} children
-                  </div>
-                ))}
+        <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/50">
+          <div className="bg-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-2xl p-10 text-white shadow-2xl">
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative">
+                <Loader2 className="h-12 w-12 animate-spin text-cyan-400" />
+                <div className="absolute inset-0 h-12 w-12 border-4 border-cyan-400/20 rounded-full animate-ping"></div>
               </div>
-              <TreeNode
-                node={hierarchyData}
-                level={0}
-                onNodeClick={handleNodeClick}
-                selectedNode={selectedNode}
-                expandedNodes={expandedNodes}
-                onToggleExpand={handleToggleExpand}
-              />
+              <div className="text-center">
+                <h3 className="text-xl font-semibold mb-2">Initializing Neural Network</h3>
+                <p className="text-sm text-gray-400">Building 3D command structure visualization...</p>
+              </div>
             </div>
           </div>
         </div>
       )}
-      
+
+      {/* Error State */}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/50">
+          <div className="bg-red-900/90 backdrop-blur-xl border border-red-700/50 rounded-2xl p-10 text-white max-w-md shadow-2xl">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <X className="h-8 w-8 text-red-400" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">Network Error</h3>
+              <p className="text-sm text-red-200 mb-6">{error}</p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={handleRefresh}
+                  className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-xl transition-all duration-200 font-medium"
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={onClose}
+                  className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded-xl transition-all duration-200 font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3D Network Visualization */}
+      {networkData && !loading && !error && (
+        <div className="absolute inset-0 pt-16">
+          <Network3D
+            nodes={networkData.nodes}
+            connections={networkData.connections}
+            selectedNode={selectedNode}
+            onNodeClick={handleNodeClick}
+          />
+        </div>
+      )}
+
       {/* Node Detail Panel */}
       <NodeDetailPanel node={selectedNode} onClose={handleCloseDetail} />
     </div>

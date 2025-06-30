@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3001:3000"
+      - "0.0.0.0:3001:3000"  # Expose frontend to internet
     environment:
       - NODE_ENV=production
       # Supabase Configuration
@@ -17,7 +17,7 @@ services:
       # App Configuration
       - NEXT_PUBLIC_API_URL=/api
       - NEXT_PUBLIC_WS_URL=ws://3.111.215.70:4002
-      - NEXT_PUBLIC_DOMAIN=http://localhost:3001
+      - NEXT_PUBLIC_DOMAIN=http://3.111.215.70:3001
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - USER_MANAGEMENT_SERVICE_URL=http://user-management-service:4003
     depends_on:
@@ -34,7 +34,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # TimescaleDB database
+  # TimescaleDB database - INTERNAL ONLY
   timescaledb:
     image: timescale/timescaledb:latest-pg14
     environment:
@@ -45,7 +45,7 @@ services:
       - timescaledb_data:/var/lib/postgresql/data
       - ./services/drone-db-service/migrations/sql:/docker-entrypoint-initdb.d
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # Bind to localhost only
     networks:
       - flyos-network
     restart: unless-stopped
@@ -55,7 +55,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # PostgreSQL for User Management
+  # PostgreSQL for User Management - INTERNAL ONLY
   postgres-users:
     image: postgres:15
     environment:
@@ -65,7 +65,7 @@ services:
     volumes:
       - user_management_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"  # Bind to localhost only
     networks:
       - flyos-network
     restart: unless-stopped
@@ -75,14 +75,14 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis for real-time data and camera streams
+  # Redis - INTERNAL ONLY
   redis:
     image: redis:7
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"  # Bind to localhost only
     networks:
       - flyos-network
     restart: unless-stopped
@@ -92,7 +92,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Drone Connection Service - Enhanced with Camera Streaming
+  # Drone Connection Service - EXPOSED FOR DRONES
   drone-connection-service:
     build:
       context: ./services/drone-connection-service
@@ -107,13 +107,16 @@ services:
       - REDIS_URL=redis://redis:6379
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - CORS_ORIGIN=*
+      # Public URLs for drone discovery
+      - PUBLIC_SERVER_URL=http://3.111.215.70:4005
+      - PUBLIC_WS_URL=ws://3.111.215.70:4005
       # Camera streaming configuration
       - CAMERA_FRAME_TIMEOUT=5000
       - CAMERA_STREAM_BUFFER_SIZE=10
       # Service token for TimescaleDB authentication
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
     ports:
-      - "4005:4005"  # Main WebSocket and API
+      - "0.0.0.0:4005:4005"  # EXPOSE TO INTERNET FOR DRONES
     networks:
       - flyos-network
     volumes:
@@ -125,7 +128,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # Database Service
+  # Database Service - INTERNAL ONLY
   drone-db-service:
     build:
       context: ./services/drone-db-service
@@ -142,10 +145,10 @@ services:
       - REDIS_URL=redis://redis:6379
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+      - CORS_ORIGIN=http://3.111.215.70:3001,http://frontend:3000
       - LOG_LEVEL=info
     ports:
-      - "4001:4001"
+      - "127.0.0.1:4001:4001"  # Internal only
     networks:
       - flyos-network
     restart: unless-stopped
@@ -155,7 +158,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # User Management Service
+  # User Management Service - INTERNAL ONLY
   user-management-service:
     build:
       context: ./services/user-management-service
@@ -170,10 +173,10 @@ services:
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
       - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
-      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+      - CORS_ORIGIN=http://3.111.215.70:3001,http://frontend:3000
       - LOG_LEVEL=info
     ports:
-      - "4003:4003"
+      - "127.0.0.1:4003:4003"  # Internal only
     networks:
       - flyos-network
     restart: unless-stopped
@@ -183,6 +186,7 @@ services:
       timeout: 10s
       retries: 3
 
+  # Realtime Service - EXPOSED FOR FRONTEND WEBSOCKETS
   realtime-service:
     build:
       context: ./services/realtime-service
@@ -196,13 +200,13 @@ services:
       - REDIS_URL=redis://redis:6379
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://localhost:3001,http://frontend:3000
+      - CORS_ORIGIN=http://3.111.215.70:3001,http://frontend:3000
       - LOG_LEVEL=info
       - DISABLE_AUTH=true
       - CAMERA_BUFFER_SIZE=50
       - CAMERA_FRAME_TIMEOUT=3000
     ports:
-      - "4002:4002"
+      - "0.0.0.0:4002:4002"  # EXPOSE FOR FRONTEND WEBSOCKETS
     networks:
       - flyos-network
     restart: unless-stopped
