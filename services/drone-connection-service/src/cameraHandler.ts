@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/cameraHandler.ts
+// services/drone-connection-service/src/cameraHandler.ts - ADDED CAMERA FRAME ACKS
 import { Server, Socket } from 'socket.io';
 import { redisClient } from './redis';
 import { logger } from './utils/logger';
@@ -24,10 +24,11 @@ export const setupCameraHandler = (io: Server) => {
   logger.info('🎥 Setting up camera stream handler...');
 
   io.on('connection', (socket: DroneSocket) => {
-    // Handle camera frame from drone
+    // Handle camera frame from drone - MODIFIED TO ADD ACK
     socket.on('camera_frame', async (data: CameraFrame) => {
       try {
         const { droneId, camera, frame, timestamp, metadata } = data;
+        const receiveTime = Date.now();
         
         if (!socket.droneId || socket.droneId !== droneId) {
           logger.warn(`⚠️ Camera frame from unregistered drone: ${droneId}`);
@@ -52,7 +53,18 @@ export const setupCameraHandler = (io: Server) => {
           metadata
         }));
 
-        logger.debug(`📸 Camera frame published: ${droneId}:${camera}`);
+        // ADDED: Send acknowledgment back to drone for latency measurement
+        socket.emit('camera_stream_ack', {
+          droneId,
+          camera,
+          timestamp, // Echo original timestamp for latency calculation
+          status: 'received',
+          serverTimestamp: receiveTime,
+          frameSize: frame.length,
+          processingTime: Date.now() - receiveTime
+        });
+
+        logger.debug(`📸 Camera frame processed: ${droneId}:${camera} (${frame.length} bytes)`);
 
       } catch (error) {
         logger.error('❌ Error processing camera frame:', error);
@@ -114,7 +126,7 @@ export const setupCameraHandler = (io: Server) => {
     });
   });
 
-  // Cleanup inactive streams
+  // Cleanup inactive streams - UNCHANGED
   setInterval(async () => {
     try {
       const keys = await redisClient.keys('camera:*:*:status');
@@ -150,7 +162,7 @@ export const setupCameraHandler = (io: Server) => {
   }, 10000);
 };
 
-// API endpoints for camera streams
+// API endpoints for camera streams - UNCHANGED
 export const setupCameraAPI = (app: any) => {
   // Get available camera streams
   app.get('/camera/streams', async (req: any, res: any) => {

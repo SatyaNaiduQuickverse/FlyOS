@@ -7,13 +7,36 @@ import math
 import logging
 import argparse
 import uuid
-from typing import Dict, Any, Optional
+import statistics
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass, asdict
 import socketio
 import aiohttp
-from dataclasses import dataclass, asdict
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+@dataclass
+class LatencyMeasurement:
+    measurement_type: str
+    send_timestamp: float
+    receive_timestamp: float
+    latency_ms: float
+    payload_size_bytes: int
+    sequence_id: int
+    additional_data: dict = None
+
+@dataclass
+class LatencyStats:
+    measurement_type: str
+    count: int
+    min_ms: float
+    max_ms: float
+    avg_ms: float
+    median_ms: float
+    p95_ms: float
+    p99_ms: float
+    payload_avg_bytes: int
 
 @dataclass
 class DroneConfig:
@@ -23,9 +46,10 @@ class DroneConfig:
     base_lng: float
     jetson_serial: str
     capabilities: list
-    telemetry_rate: float = 10.0  # Hz
-    heartbeat_rate: float = 0.1   # Hz
-    mavros_rate: float = 1.0      # Hz
+    telemetry_rate: float = 10.0
+    heartbeat_rate: float = 0.1
+    mavros_rate: float = 1.0
+    enable_latency_measurement: bool = True
 
 @dataclass
 class DroneState:
@@ -57,7 +81,6 @@ class ProductionMockDrone:
     def __init__(self, config: DroneConfig, server_url: str):
         self.config = config
         self.server_url = server_url
-        # Use production port 4005
         self.ws_url = server_url.replace('http', 'ws')
         self.sio = socketio.AsyncClient(
             reconnection=True,
@@ -97,6 +120,18 @@ class ProductionMockDrone:
         self.session_token = None
         self.tasks = []
         
+        # Latency measurement variables
+        self.latency_measurements: List[LatencyMeasurement] = []
+        self.sequence_counters = {
+            'telemetry': 0,
+            'camera': 0,
+            'webrtc': 0,
+            'command': 0,
+            'heartbeat': 0
+        }
+        self.pending_measurements = {}
+        self.webrtc_session_start = None
+        
         self.setup_event_handlers()
         
     def setup_event_handlers(self):
@@ -133,15 +168,137 @@ class ProductionMockDrone:
         @self.sio.event
         async def waypoint_mission(data):
             await self.handle_waypoint_mission(data)
+            
+        @self.sio.event
+        async def heartbeat_ack(data):
+            if self.config.enable_latency_measurement:
+                await self.measure_heartbeat_latency(data)
+                
+        @self.sio.event
+        async def telemetry_ack(data):
+            if self.config.enable_latency_measurement:
+                await self.measure_telemetry_latency(data)
+
+    async def measure_telemetry_latency(self, ack_data):
+        """Measure telemetry round-trip latency"""
+        try:
+            if 'timestamp' in ack_data:
+                send_time = float(ack_data['timestamp']) / 1000
+                receive_time = time.time()
+                latency_ms = (receive_time - send_time) * 1000
+                
+                measurement = LatencyMeasurement(
+                    measurement_type='telemetry',
+                    send_timestamp=send_time,
+                    receive_timestamp=receive_time,
+                    latency_ms=latency_ms,
+                    payload_size_bytes=self.calculate_telemetry_size(),
+                    sequence_id=self.sequence_counters['telemetry'],
+                    additional_data={'ack_data': ack_data}
+                )
+                
+                self.latency_measurements.append(measurement)
+                self.state.latency = latency_ms
+                
+        except Exception as e:
+            logger.error(f"Error measuring telemetry latency: {e}")
+
+    async def measure_heartbeat_latency(self, ack_data):
+        """Measure heartbeat round-trip latency"""
+        try:
+            if 'serverTimestamp' in ack_data:
+                server_time = float(ack_data['serverTimestamp']) / 1000
+                receive_time = time.time()
+                latency_ms = (receive_time - server_time) * 1000
+                
+                measurement = LatencyMeasurement(
+                    measurement_type='heartbeat',
+                    send_timestamp=server_time,
+                    receive_timestamp=receive_time,
+                    latency_ms=latency_ms,
+                    payload_size_bytes=len(json.dumps(ack_data).encode()),
+                    sequence_id=self.sequence_counters['heartbeat'],
+                    additional_data={'connection_quality': ack_data.get('connectionQuality')}
+                )
+                
+                self.latency_measurements.append(measurement)
+                
+        except Exception as e:
+            logger.error(f"Error measuring heartbeat latency: {e}")
+
+    def calculate_telemetry_size(self):
+        """Calculate approximate telemetry payload size"""
+        sample_data = asdict(self.state)
+        sample_data['timestamp'] = time.time() * 1000
+        return len(json.dumps(sample_data).encode())
+
+    def get_latency_statistics(self) -> Dict[str, LatencyStats]:
+        """Calculate latency statistics by measurement type"""
+        stats = {}
+        
+        by_type = {}
+        for measurement in self.latency_measurements:
+            if measurement.measurement_type not in by_type:
+                by_type[measurement.measurement_type] = []
+            by_type[measurement.measurement_type].append(measurement)
+        
+        for measurement_type, measurements in by_type.items():
+            if not measurements:
+                continue
+                
+            latencies = [m.latency_ms for m in measurements]
+            payload_sizes = [m.payload_size_bytes for m in measurements]
+            
+            stats[measurement_type] = LatencyStats(
+                measurement_type=measurement_type,
+                count=len(measurements),
+                min_ms=min(latencies),
+                max_ms=max(latencies),
+                avg_ms=statistics.mean(latencies),
+                median_ms=statistics.median(latencies),
+                p95_ms=self.percentile(latencies, 95),
+                p99_ms=self.percentile(latencies, 99),
+                payload_avg_bytes=int(statistics.mean(payload_sizes))
+            )
+        
+        return stats
+
+    def percentile(self, data: List[float], p: float) -> float:
+        """Calculate percentile"""
+        if not data:
+            return 0.0
+        sorted_data = sorted(data)
+        index = (len(sorted_data) - 1) * p / 100
+        lower = int(index)
+        upper = min(lower + 1, len(sorted_data) - 1)
+        weight = index - lower
+        return sorted_data[lower] * (1 - weight) + sorted_data[upper] * weight
 
     async def discover_server(self) -> bool:
-        """Discover production server"""
+        """Discover production server with latency measurement"""
         try:
+            start_time = time.time()
             async with aiohttp.ClientSession() as session:
                 async with session.post(f"{self.server_url}/drone/discover") as response:
+                    end_time = time.time()
+                    
                     if response.status == 200:
                         data = await response.json()
-                        logger.info(f"🔍 [{self.config.drone_id}] Production server discovered")
+                        discovery_latency = (end_time - start_time) * 1000
+                        
+                        if self.config.enable_latency_measurement:
+                            measurement = LatencyMeasurement(
+                                measurement_type='discovery',
+                                send_timestamp=start_time,
+                                receive_timestamp=end_time,
+                                latency_ms=discovery_latency,
+                                payload_size_bytes=len(json.dumps(data).encode()),
+                                sequence_id=0,
+                                additional_data={'http_status': response.status}
+                            )
+                            self.latency_measurements.append(measurement)
+                        
+                        logger.info(f"🔍 [{self.config.drone_id}] Production server discovered ({discovery_latency:.2f}ms)")
                         return True
                     else:
                         logger.error(f"❌ [{self.config.drone_id}] Discovery failed: {response.status}")
@@ -151,12 +308,12 @@ class ProductionMockDrone:
             return False
 
     async def register_with_server(self) -> bool:
-        """Register with production server via HTTP"""
+        """Register with production server via HTTP with latency measurement"""
         try:
             registration_data = {
                 'droneId': self.config.drone_id,
                 'model': self.config.model,
-                'version': '2.0-production-mock',
+                'version': '2.0-production-mock-latency',
                 'jetsonSerial': self.config.jetson_serial,
                 'capabilities': self.config.capabilities,
                 'systemInfo': {
@@ -168,15 +325,33 @@ class ProductionMockDrone:
                 }
             }
             
+            start_time = time.time()
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.server_url}/drone/register",
                     json=registration_data
                 ) as response:
+                    end_time = time.time()
+                    
                     if response.status == 200:
                         data = await response.json()
                         self.session_token = data.get('sessionToken')
-                        logger.info(f"📝 [{self.config.drone_id}] Production HTTP registration successful")
+                        
+                        registration_latency = (end_time - start_time) * 1000
+                        
+                        if self.config.enable_latency_measurement:
+                            measurement = LatencyMeasurement(
+                                measurement_type='registration',
+                                send_timestamp=start_time,
+                                receive_timestamp=end_time,
+                                latency_ms=registration_latency,
+                                payload_size_bytes=len(json.dumps(registration_data).encode()),
+                                sequence_id=0,
+                                additional_data={'session_token': self.session_token[:8] + '...'}
+                            )
+                            self.latency_measurements.append(measurement)
+                        
+                        logger.info(f"📝 [{self.config.drone_id}] Production HTTP registration successful ({registration_latency:.2f}ms)")
                         return True
                     else:
                         logger.error(f"❌ [{self.config.drone_id}] HTTP registration failed: {response.status}")
@@ -190,7 +365,7 @@ class ProductionMockDrone:
         registration_data = {
             'droneId': self.config.drone_id,
             'model': self.config.model,
-            'version': '2.0-production-mock',
+            'version': '2.0-production-mock-latency',
             'capabilities': self.config.capabilities,
             'jetsonInfo': {
                 'ip': '192.168.1.100',
@@ -215,17 +390,21 @@ class ProductionMockDrone:
         logger.info(f"🎬 [{self.config.drone_id}] Production data streams started")
 
     async def telemetry_stream(self):
-        """Send production telemetry data"""
+        """Send production telemetry data with latency measurement"""
         interval = 1.0 / self.config.telemetry_rate
         
         while self.registered:
             try:
+                self.sequence_counters['telemetry'] += 1
+                current_time = time.time() * 1000
+                
                 telemetry_data = asdict(self.state)
                 telemetry_data.update({
-                    'timestamp': time.time() * 1000,
-                    'jetsonTimestamp': time.time() * 1000,
+                    'timestamp': current_time,
+                    'jetsonTimestamp': current_time,
                     'droneType': 'REAL',
-                    'sessionId': self.session_token
+                    'sessionId': self.session_token,
+                    'sequence_id': self.sequence_counters['telemetry']
                 })
                 
                 await self.sio.emit('telemetry_real', telemetry_data)
@@ -236,13 +415,16 @@ class ProductionMockDrone:
                 await asyncio.sleep(interval)
 
     async def heartbeat_stream(self):
-        """Send production heartbeat"""
+        """Send production heartbeat with latency measurement"""
         interval = 1.0 / self.config.heartbeat_rate
         
         while self.registered:
             try:
+                self.sequence_counters['heartbeat'] += 1
+                
                 heartbeat_data = {
                     'timestamp': time.time() * 1000,
+                    'sequence_id': self.sequence_counters['heartbeat'],
                     'jetsonMetrics': {
                         'cpuUsage': random.uniform(20, 60),
                         'memoryUsage': random.uniform(40, 80),
@@ -337,7 +519,7 @@ class ProductionMockDrone:
                 await asyncio.sleep(0.1)
 
     async def handle_command(self, data):
-        """Handle production commands"""
+        """Handle production commands with latency measurement"""
         command_type = data.get('type') or data.get('commandType')
         parameters = data.get('parameters', {})
         command_id = data.get('id')
@@ -368,7 +550,37 @@ class ProductionMockDrone:
             'timestamp': time.time() * 1000
         }
         
+        # Measure command latency if enabled
+        if self.config.enable_latency_measurement:
+            await self.measure_command_latency(data, response)
+        
         await self.sio.emit('command_response', response)
+
+    async def measure_command_latency(self, command_data, response_data):
+        """Measure command execution latency"""
+        try:
+            if 'timestamp' in command_data and 'timestamp' in response_data:
+                send_time = float(command_data['timestamp']) / 1000
+                receive_time = float(response_data['timestamp']) / 1000
+                latency_ms = (receive_time - send_time) * 1000
+                
+                measurement = LatencyMeasurement(
+                    measurement_type='command',
+                    send_timestamp=send_time,
+                    receive_timestamp=receive_time,
+                    latency_ms=latency_ms,
+                    payload_size_bytes=len(json.dumps(command_data).encode()),
+                    sequence_id=self.sequence_counters['command'],
+                    additional_data={
+                        'command_type': command_data.get('type'),
+                        'status': response_data.get('status')
+                    }
+                )
+                
+                self.latency_measurements.append(measurement)
+                
+        except Exception as e:
+            logger.error(f"Error measuring command latency: {e}")
 
     async def handle_precision_landing_command(self, data):
         """Handle precision landing commands"""
@@ -483,13 +695,45 @@ class ProductionMockDrone:
         finally:
             await self.disconnect()
 
+    def print_latency_report(self):
+        """Print comprehensive latency report"""
+        stats = self.get_latency_statistics()
+        
+        print(f"\n📊 PRODUCTION LATENCY REPORT - {self.config.drone_id}")
+        print("=" * 60)
+        
+        if not stats:
+            print("No latency measurements collected")
+            return
+        
+        for measurement_type, stat in stats.items():
+            print(f"\n{measurement_type.upper()} LATENCY:")
+            print(f"  Count: {stat.count}")
+            print(f"  Min: {stat.min_ms:.2f}ms")
+            print(f"  Avg: {stat.avg_ms:.2f}ms")
+            print(f"  Median: {stat.median_ms:.2f}ms")
+            print(f"  P95: {stat.p95_ms:.2f}ms")
+            print(f"  P99: {stat.p99_ms:.2f}ms")
+            print(f"  Max: {stat.max_ms:.2f}ms")
+            print(f"  Avg Payload: {stat.payload_avg_bytes} bytes")
+        
+        all_measurements = [m.latency_ms for m in self.latency_measurements]
+        if all_measurements:
+            print(f"\nOVERALL STATISTICS:")
+            print(f"  Total measurements: {len(all_measurements)}")
+            print(f"  Overall avg latency: {statistics.mean(all_measurements):.2f}ms")
+            print(f"  Overall median: {statistics.median(all_measurements):.2f}ms")
+        
+        print("=" * 60)
+
 def main():
-    parser = argparse.ArgumentParser(description='Production Mock Drone Simulator')
+    parser = argparse.ArgumentParser(description='Enhanced Production Mock Drone Simulator with Latency')
     parser.add_argument('--server', default='http://localhost:4005', help='Production server URL')
     parser.add_argument('--drone-id', default='prod-drone-001', help='Drone ID')
     parser.add_argument('--model', default='FlyOS_MQ7_Production', help='Drone model')
     parser.add_argument('--lat', type=float, default=18.5204, help='Base latitude')
     parser.add_argument('--lng', type=float, default=73.8567, help='Base longitude')
+    parser.add_argument('--disable-latency', action='store_true', help='Disable latency measurement')
     
     args = parser.parse_args()
     
@@ -500,14 +744,10 @@ def main():
         base_lng=args.lng,
         jetson_serial=f"JETSON-PROD-{uuid.uuid4().hex[:8].upper()}",
         capabilities=[
-            'telemetry',
-            'camera',
-            'mavros',
-            'precision_landing',
-            'webrtc',
-            'commands',
-            'mission_planning'
-        ]
+            'telemetry', 'camera', 'mavros', 'precision_landing',
+            'webrtc', 'commands', 'mission_planning', 'latency_measurement'
+        ],
+        enable_latency_measurement=not args.disable_latency
     )
     
     drone = ProductionMockDrone(config, args.server)
@@ -516,6 +756,9 @@ def main():
         asyncio.run(drone.run())
     except KeyboardInterrupt:
         logger.info("🛑 Production simulator stopped by user")
+    finally:
+        if config.enable_latency_measurement:
+            drone.print_latency_report()
 
 if __name__ == "__main__":
     main()

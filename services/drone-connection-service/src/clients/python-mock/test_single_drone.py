@@ -7,7 +7,7 @@ import argparse
 import logging
 import sys
 import time
-from drone_simulator import MockDrone, DroneConfig
+from drone_simulator_prod import ProductionMockDrone as MockDrone, DroneConfig
 
 # Configure logging
 logging.basicConfig(

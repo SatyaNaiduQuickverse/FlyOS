@@ -7,7 +7,7 @@ import {
   TreePine // Import tree icon
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import HierarchyTree3D from './HierarchyTree3D'; // Import the 3D component
+//import HierarchyTree3D from './HierarchyTree3D'; // Import the 3D component
 
 // Placeholder for DroneLocationMap component
 const DroneLocationMap = ({ location, expanded }) => (
