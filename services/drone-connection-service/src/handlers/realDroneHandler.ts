@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/handlers/realDroneHandler.ts
+// services/drone-connection-service/src/handlers/realDroneHandler.ts - UPDATED FOR WEBRTC
 import { Server, Socket } from 'socket.io';
 import { routeTelemetryData, routeCommandData, routePrecisionLandingData } from '../dataRouter';
 import { logger } from '../utils/logger';
@@ -10,6 +10,7 @@ interface RealDroneSocket extends Socket {
   lastHeartbeat?: number;
   connectionQuality: number;
   webrtcPeer?: any;
+  webrtcDataChannels?: Map<string, any>;
 }
 
 interface DroneRegistration {
@@ -25,15 +26,16 @@ interface DroneRegistration {
 }
 
 export const setupRealDroneHandler = (io: Server) => {
-  logger.info('🚁 Setting up REAL drone connection handlers...');
+  logger.info('🚁 Setting up REAL drone connection handlers with WebRTC support...');
   
   io.on('connection', (socket: Socket) => {
     const realSocket = socket as RealDroneSocket;
-    realSocket.connectionQuality = 100; // Initialize connection quality
+    realSocket.connectionQuality = 100;
+    realSocket.webrtcDataChannels = new Map();
     
     logger.info(`🔗 New connection attempt: ${realSocket.id} from ${realSocket.handshake.address}`);
     
-    // Enhanced drone registration for real drones
+    // Enhanced drone registration for real drones with WebRTC capabilities
     realSocket.on('drone_register_real', async (data: DroneRegistration) => {
       try {
         const { droneId, model, version, capabilities, jetsonInfo } = data;
@@ -59,6 +61,9 @@ export const setupRealDroneHandler = (io: Server) => {
         realSocket.lastHeartbeat = Date.now();
         realSocket.connectionQuality = 100;
         
+        // Check WebRTC capabilities
+        const hasWebRTC = capabilities.includes('webrtc') || capabilities.includes('camera_webrtc');
+        
         // Add to global registry with enhanced metadata
         global.connectedDrones[droneId] = {
           socketId: realSocket.id,
@@ -72,11 +77,13 @@ export const setupRealDroneHandler = (io: Server) => {
           lastHeartbeat: realSocket.lastHeartbeat,
           status: 'CONNECTED',
           connectionQuality: 100,
+          webrtcSupported: hasWebRTC,
           dataChannels: {
             telemetry: false,
             camera: false,
             mavros: false,
-            commands: true
+            commands: true,
+            webrtc: hasWebRTC
           }
         };
         
@@ -84,7 +91,9 @@ export const setupRealDroneHandler = (io: Server) => {
         await updateRealDroneStatus(droneId, 'CONNECTED', jetsonInfo);
         
         // Initialize WebRTC signaling capability
-        await initializeWebRTCForDrone(realSocket, droneId);
+        if (hasWebRTC) {
+          await initializeWebRTCForDrone(realSocket, droneId);
+        }
         
         realSocket.emit('registration_success', { 
           droneId, 
@@ -93,14 +102,16 @@ export const setupRealDroneHandler = (io: Server) => {
             'telemetry', 'commands', 'camera_webrtc', 
             'mavros_logging', 'precision_landing', 'mission_planning'
           ],
+          webrtcSupported: hasWebRTC,
           recommendedDataRates: {
             telemetry: '10Hz',
             mavros: '1Hz',
-            heartbeat: '0.1Hz'
+            heartbeat: '0.1Hz',
+            camera: hasWebRTC ? 'webrtc_datachannel' : 'websocket'
           }
         });
         
-        logger.info(`✅ REAL drone registered: ${droneId} (${model}) from Jetson ${jetsonInfo.serialNumber}`);
+        logger.info(`✅ REAL drone registered: ${droneId} (${model}) from Jetson ${jetsonInfo.serialNumber} - WebRTC: ${hasWebRTC}`);
         
       } catch (error) {
         logger.error('❌ Real drone registration failed:', error);
@@ -182,8 +193,8 @@ export const setupRealDroneHandler = (io: Server) => {
         };
 
         await redisClient.lpush(bufferKey, JSON.stringify(mavrosMessage));
-        await redisClient.ltrim(bufferKey, 0, 499); // Keep last 500
-        await redisClient.expire(bufferKey, 3600); // 1 hour
+        await redisClient.ltrim(bufferKey, 0, 499);
+        await redisClient.expire(bufferKey, 3600);
 
         // Publish for real-time WebSocket subscribers
         await redisClient.publish(
@@ -198,8 +209,77 @@ export const setupRealDroneHandler = (io: Server) => {
       }
     });
 
-    // WebRTC signaling for camera streams
-    realSocket.on('webrtc_offer', async (data: { offer: any, droneId: string }) => {
+    // NEW: WebRTC data channel setup
+    realSocket.on('webrtc_datachannel_setup', async (data: { 
+      droneId: string;
+      channels: { label: string; config: any }[] 
+    }) => {
+      try {
+        if (realSocket.droneId !== data.droneId || realSocket.droneType !== 'REAL') {
+          logger.warn('⚠️ WebRTC datachannel setup from invalid drone');
+          return;
+        }
+
+        logger.info(`📡 WebRTC datachannel setup for real drone: ${realSocket.droneId}`);
+        
+        // Store datachannel configurations
+        for (const channel of data.channels) {
+          realSocket.webrtcDataChannels?.set(channel.label, {
+            config: channel.config,
+            setupAt: new Date().toISOString(),
+            active: false
+          });
+        }
+
+        // Update Redis with datachannel capabilities
+        await redisClient.setex(
+          `webrtc:${realSocket.droneId}:dataChannels`,
+          300,
+          JSON.stringify({
+            channels: data.channels.map(c => c.label),
+            setupAt: new Date().toISOString(),
+            droneType: 'REAL'
+          })
+        );
+
+        realSocket.emit('webrtc_datachannel_ack', { 
+          status: 'setup_complete',
+          channels: data.channels.map(c => c.label)
+        });
+        
+      } catch (error) {
+        logger.error(`❌ WebRTC datachannel setup failed: ${error}`);
+      }
+    });
+
+    // NEW: WebRTC data channel ready
+    realSocket.on('webrtc_datachannel_ready', async (data: { 
+      droneId: string;
+      channelLabel: string 
+    }) => {
+      try {
+        if (realSocket.droneId !== data.droneId) return;
+
+        const channel = realSocket.webrtcDataChannels?.get(data.channelLabel);
+        if (channel) {
+          channel.active = true;
+          channel.readyAt = new Date().toISOString();
+        }
+
+        // Update global drone info
+        if (global.connectedDrones[realSocket.droneId] && data.channelLabel === 'camera_frames') {
+          global.connectedDrones[realSocket.droneId].dataChannels.camera = true;
+        }
+
+        logger.info(`📡 WebRTC datachannel ready: ${realSocket.droneId}:${data.channelLabel}`);
+        
+      } catch (error) {
+        logger.error(`❌ WebRTC datachannel ready failed: ${error}`);
+      }
+    });
+
+    // Enhanced WebRTC signaling for camera streams
+    realSocket.on('webrtc_offer', async (data: { offer: any, droneId: string, dataChannels?: string[] }) => {
       try {
         if (realSocket.droneId !== data.droneId || realSocket.droneType !== 'REAL') {
           logger.warn('⚠️ WebRTC offer from invalid drone');
@@ -208,14 +288,15 @@ export const setupRealDroneHandler = (io: Server) => {
 
         logger.info(`📹 WebRTC offer received from real drone: ${realSocket.droneId}`);
         
-        // Store offer and notify frontend clients
+        // Store offer with datachannel info
         await redisClient.setex(
           `webrtc:${realSocket.droneId}:offer`,
-          300, // 5 minutes
+          300,
           JSON.stringify({
             offer: data.offer,
             timestamp: new Date().toISOString(),
-            droneType: 'REAL'
+            droneType: 'REAL',
+            dataChannels: data.dataChannels || ['camera_frames']
           })
         );
 
@@ -226,6 +307,7 @@ export const setupRealDroneHandler = (io: Server) => {
             type: 'offer',
             droneId: realSocket.droneId,
             offer: data.offer,
+            dataChannels: data.dataChannels,
             timestamp: new Date().toISOString()
           })
         );
@@ -235,7 +317,10 @@ export const setupRealDroneHandler = (io: Server) => {
           global.connectedDrones[realSocket.droneId].dataChannels.camera = true;
         }
 
-        realSocket.emit('webrtc_offer_received', { status: 'forwarded_to_clients' });
+        realSocket.emit('webrtc_offer_received', { 
+          status: 'forwarded_to_clients',
+          dataChannels: data.dataChannels 
+        });
         
       } catch (error) {
         logger.error(`❌ WebRTC offer processing failed: ${error}`);
@@ -350,7 +435,8 @@ export const setupRealDroneHandler = (io: Server) => {
         realSocket.emit('heartbeat_ack', {
           serverTimestamp: Date.now(),
           connectionQuality: realSocket.connectionQuality,
-          recommendedDataRate: realSocket.connectionQuality > 80 ? '10Hz' : '5Hz'
+          recommendedDataRate: realSocket.connectionQuality > 80 ? '10Hz' : '5Hz',
+          webrtcRecommended: realSocket.connectionQuality > 70
         });
       }
     });
@@ -393,6 +479,8 @@ export const setupRealDroneHandler = (io: Server) => {
       }
     });
   }, 10000); // Check every 10 seconds
+
+  logger.info('✅ REAL drone handlers configured with WebRTC datachannel support');
 };
 
 // Helper function to update connection quality
@@ -432,7 +520,7 @@ const updateConnectionQuality = (realSocket: RealDroneSocket, data: any) => {
 // Helper function to initialize WebRTC for drone
 const initializeWebRTCForDrone = async (realSocket: RealDroneSocket, droneId: string) => {
   try {
-    // Store WebRTC capability
+    // Store WebRTC capability with datachannel support
     await redisClient.setex(
       `webrtc:${droneId}:capability`,
       3600,
@@ -441,11 +529,13 @@ const initializeWebRTCForDrone = async (realSocket: RealDroneSocket, droneId: st
         droneType: 'REAL',
         codecs: ['H264', 'VP8'],
         maxBitrate: '5000kbps',
+        dataChannelSupport: true,
+        supportedChannels: ['camera_frames', 'telemetry_backup'],
         timestamp: new Date().toISOString()
       })
     );
     
-    logger.info(`📹 WebRTC initialized for real drone: ${droneId}`);
+    logger.info(`📹 WebRTC with datachannel support initialized for real drone: ${droneId}`);
   } catch (error) {
     logger.error(`❌ WebRTC initialization failed for ${droneId}:`, error);
   }
@@ -454,8 +544,13 @@ const initializeWebRTCForDrone = async (realSocket: RealDroneSocket, droneId: st
 // Helper function to clean up WebRTC resources
 const cleanupWebRTCForDrone = async (droneId: string) => {
   try {
-    await redisClient.del(`webrtc:${droneId}:capability`);
-    await redisClient.del(`webrtc:${droneId}:offer`);
+    await Promise.all([
+      redisClient.del(`webrtc:${droneId}:capability`),
+      redisClient.del(`webrtc:${droneId}:offer`),
+      redisClient.del(`webrtc:${droneId}:active_session`),
+      redisClient.del(`webrtc:${droneId}:dataChannels`),
+      redisClient.del(`webrtc:${droneId}:stats`)
+    ]);
     
     logger.info(`🧹 WebRTC cleanup completed for: ${droneId}`);
   } catch (error) {

@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/handlers/webrtcSignaling.ts
+// services/drone-connection-service/src/handlers/webrtcSignaling.ts - UPDATED WITH DATA CHANNELS
 import { Server, Socket } from 'socket.io';
 import { redisClient } from '../redis';
 import { logger } from '../utils/logger';
@@ -9,6 +9,7 @@ interface WebRTCSession {
   offer?: any;
   answer?: any;
   iceCandidates: any[];
+  dataChannels: Map<string, any>;
   status: 'negotiating' | 'connected' | 'failed' | 'closed';
   createdAt: string;
   connectedAt?: string;
@@ -23,7 +24,7 @@ interface WebRTCSession {
 const activeSessions = new Map<string, WebRTCSession>();
 
 export const setupWebRTCSignaling = (io: Server) => {
-  logger.info('📹 Setting up WebRTC signaling server...');
+  logger.info('📹 Setting up WebRTC signaling server with data channels...');
 
   // Subscribe to WebRTC signaling events from Redis
   const setupRedisSubscription = async () => {
@@ -57,10 +58,14 @@ export const setupWebRTCSignaling = (io: Server) => {
 
   io.on('connection', (socket: Socket) => {
     
-    // Frontend initiates WebRTC connection to drone
-    socket.on('webrtc_create_session', async (data: { droneId: string, sessionType: 'camera' | 'data' }) => {
+    // Enhanced WebRTC session creation with data channel support
+    socket.on('webrtc_create_session', async (data: { 
+      droneId: string, 
+      sessionType: 'camera' | 'data',
+      dataChannels?: string[] 
+    }) => {
       try {
-        const { droneId, sessionType } = data;
+        const { droneId, sessionType, dataChannels = ['camera_frames'] } = data;
         const sessionId = `${droneId}_${Date.now()}`;
         
         // Check if drone is connected
@@ -74,36 +79,122 @@ export const setupWebRTCSignaling = (io: Server) => {
           return;
         }
         
-        // Create session
+        // Create session with data channel support
         const session: WebRTCSession = {
           droneId,
           sessionId,
           iceCandidates: [],
+          dataChannels: new Map(),
           status: 'negotiating',
           createdAt: new Date().toISOString()
         };
         
         activeSessions.set(sessionId, session);
         
-        // Request offer from drone
+        // Request offer from drone with data channel specification
         const droneSocket = io.sockets.sockets.get(droneConnection.socketId);
         if (droneSocket) {
           droneSocket.emit('webrtc_request_offer', {
             sessionId,
             sessionType,
+            dataChannels, // Request specific data channels
             stunServers: [
               { urls: 'stun:stun.l.google.com:19302' },
               { urls: 'stun:stun1.l.google.com:19302' }
-            ]
+            ],
+            config: {
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }
+              ],
+              dataChannelConfig: {
+                ordered: false, // Allow out-of-order delivery for video
+                maxRetransmits: 0 // No retransmits for real-time data
+              }
+            }
           });
         }
         
         socket.emit('webrtc_session_created', { sessionId, droneId, status: 'waiting_for_offer' });
-        logger.info(`📹 WebRTC session created: ${sessionId} for ${droneId}`);
+        logger.info(`📹 WebRTC session created with data channels: ${sessionId} for ${droneId}`);
         
       } catch (error) {
         logger.error('❌ WebRTC session creation failed:', error);
         socket.emit('webrtc_error', { error: 'Session creation failed' });
+      }
+    });
+
+    // Handle data channel creation from drone
+    socket.on('webrtc_data_channel_created', async (data: { 
+      sessionId: string, 
+      channelLabel: string,
+      channelConfig: any 
+    }) => {
+      try {
+        const { sessionId, channelLabel, channelConfig } = data;
+        const session = activeSessions.get(sessionId);
+        
+        if (!session) {
+          socket.emit('webrtc_error', { error: 'Session not found', sessionId });
+          return;
+        }
+        
+        // Store data channel info
+        session.dataChannels.set(channelLabel, {
+          label: channelLabel,
+          config: channelConfig,
+          createdAt: new Date().toISOString()
+        });
+        
+        logger.info(`📡 Data channel created: ${channelLabel} for session ${sessionId}`);
+        
+        // Notify frontend
+        socket.emit('webrtc_data_channel_ready', {
+          sessionId,
+          droneId: session.droneId,
+          channelLabel,
+          config: channelConfig
+        });
+        
+      } catch (error) {
+        logger.error('❌ Data channel creation error:', error);
+      }
+    });
+
+    // Handle data channel frames from drone
+    socket.on('webrtc_data_frame', async (data: { 
+      sessionId: string,
+      channelLabel: string,
+      frameData: any,
+      metadata: any 
+    }) => {
+      try {
+        const { sessionId, channelLabel, frameData, metadata } = data;
+        const session = activeSessions.get(sessionId);
+        
+        if (!session) {
+          logger.warn(`Data frame received for unknown session: ${sessionId}`);
+          return;
+        }
+        
+        // Process camera frames specifically
+        if (channelLabel === 'camera_frames') {
+          await processCameraDataFrame(session.droneId, frameData, metadata);
+        }
+        
+        // Update session quality metrics
+        if (metadata.stats) {
+          session.quality = {
+            bitrate: metadata.stats.bitrate || 0,
+            fps: metadata.stats.fps || 0,
+            latency: metadata.stats.latency || 0,
+            packetLoss: metadata.stats.packetLoss || 0
+          };
+        }
+        
+        logger.debug(`📡 Data frame processed: ${channelLabel} for ${session.droneId}`);
+        
+      } catch (error) {
+        logger.error('❌ Data frame processing error:', error);
       }
     });
 
@@ -203,7 +294,8 @@ export const setupWebRTCSignaling = (io: Server) => {
             JSON.stringify({
               sessionId,
               connectedAt: session.connectedAt,
-              quality: session.quality
+              quality: session.quality,
+              dataChannels: Array.from(session.dataChannels.keys())
             })
           );
         }
@@ -213,7 +305,8 @@ export const setupWebRTCSignaling = (io: Server) => {
           droneId: session.droneId,
           sessionId,
           state,
-          quality: session.quality
+          quality: session.quality,
+          dataChannels: Array.from(session.dataChannels.keys())
         });
         
       } catch (error) {
@@ -252,26 +345,6 @@ export const setupWebRTCSignaling = (io: Server) => {
       }
     });
 
-    // Get active WebRTC sessions
-    socket.on('webrtc_get_sessions', () => {
-      try {
-        const sessions = Array.from(activeSessions.values()).map(session => ({
-          sessionId: session.sessionId,
-          droneId: session.droneId,
-          status: session.status,
-          createdAt: session.createdAt,
-          connectedAt: session.connectedAt,
-          quality: session.quality
-        }));
-        
-        socket.emit('webrtc_sessions', { sessions });
-        
-      } catch (error) {
-        logger.error('❌ Failed to get WebRTC sessions:', error);
-        socket.emit('webrtc_error', { error: 'Failed to get sessions' });
-      }
-    });
-
     // Handle WebRTC statistics reporting
     socket.on('webrtc_stats', async (data: { sessionId: string, stats: any }) => {
       try {
@@ -293,6 +366,7 @@ export const setupWebRTCSignaling = (io: Server) => {
             JSON.stringify({
               sessionId,
               timestamp: new Date().toISOString(),
+              dataChannels: Array.from(session.dataChannels.keys()),
               ...session.quality
             })
           );
@@ -304,6 +378,7 @@ export const setupWebRTCSignaling = (io: Server) => {
               sessionId,
               droneId: session.droneId,
               timestamp: new Date().toISOString(),
+              dataChannels: Array.from(session.dataChannels.keys()),
               ...session.quality
             })
           );
@@ -335,12 +410,52 @@ export const setupWebRTCSignaling = (io: Server) => {
     }
   }, 60000); // Check every minute
 
-  logger.info('✅ WebRTC signaling server configured successfully');
+  logger.info('✅ WebRTC signaling server configured successfully with data channel support');
 };
 
-// API endpoints for WebRTC management
+// Process camera data frames from WebRTC data channels
+const processCameraDataFrame = async (droneId: string, frameData: any, metadata: any) => {
+  try {
+    // Extract camera info from metadata
+    const camera = metadata.camera || 'front';
+    const timestamp = metadata.timestamp || new Date().toISOString();
+    
+    // Create camera frame object compatible with existing Redis structure
+    const cameraFrame = {
+      droneId,
+      camera,
+      timestamp,
+      frame: frameData, // Binary or base64 frame data
+      metadata: {
+        resolution: metadata.resolution || '1920x1080',
+        fps: metadata.fps || 30,
+        quality: metadata.quality || 85,
+        frameNumber: metadata.frameNumber || 0,
+        bandwidth: metadata.bandwidth || 'N/A',
+        transport: 'webrtc_datachannel', // Mark as WebRTC transport
+        latency: metadata.latency || 0
+      },
+      receivedAt: new Date().toISOString(),
+      transport: 'webrtc'
+    };
+    
+    // Store latest frame in Redis for immediate access
+    const streamKey = `camera:${droneId}:${camera}:latest`;
+    await redisClient.setex(streamKey, 5, JSON.stringify(cameraFrame));
+
+    // Publish to subscribers (realtime service will pick this up)
+    await redisClient.publish(`camera:${droneId}:${camera}:stream`, JSON.stringify(cameraFrame));
+
+    logger.debug(`📸 WebRTC camera frame processed: ${droneId}:${camera} (${frameData.length} bytes)`);
+    
+  } catch (error) {
+    logger.error('❌ Error processing WebRTC camera frame:', error);
+  }
+};
+
+// API endpoints for WebRTC management - UPDATED
 export const setupWebRTCAPI = (app: any) => {
-  // Get active WebRTC sessions
+  // Get active WebRTC sessions with data channel info
   app.get('/webrtc/sessions', async (req: any, res: any) => {
     try {
       const sessions = Array.from(activeSessions.values()).map(session => ({
@@ -349,7 +464,8 @@ export const setupWebRTCAPI = (app: any) => {
         status: session.status,
         createdAt: session.createdAt,
         connectedAt: session.connectedAt,
-        quality: session.quality
+        quality: session.quality,
+        dataChannels: Array.from(session.dataChannels.keys())
       }));
       
       res.json({ 
@@ -379,9 +495,15 @@ export const setupWebRTCAPI = (app: any) => {
         });
       }
       
+      const capabilityData = JSON.parse(capability);
+      
       res.json({ 
         success: true, 
-        capability: JSON.parse(capability) 
+        capability: {
+          ...capabilityData,
+          dataChannelSupport: true,
+          supportedChannels: ['camera_frames', 'telemetry_backup']
+        }
       });
     } catch (error) {
       res.status(500).json({ 
@@ -391,7 +513,7 @@ export const setupWebRTCAPI = (app: any) => {
     }
   });
 
-  // Get current WebRTC stats for a drone
+  // Get current WebRTC stats for a drone with data channel info
   app.get('/webrtc/:droneId/stats', async (req: any, res: any) => {
     try {
       const { droneId } = req.params;
