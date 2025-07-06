@@ -1,0 +1,5 @@
+Requirement already satisfied: pyopenssl in ./venv/lib/python3.10/site-packages (25.1.0)
+Requirement already satisfied: cryptography<46,>=41.0.5 in ./venv/lib/python3.10/site-packages (from pyopenssl) (45.0.5)
+Requirement already satisfied: typing-extensions>=4.9 in ./venv/lib/python3.10/site-packages (from pyopenssl) (4.14.1)
+Requirement already satisfied: cffi>=1.14 in ./venv/lib/python3.10/site-packages (from cryptography<46,>=41.0.5->pyopenssl) (1.17.1)
+Requirement already satisfied: pycparser in ./venv/lib/python3.10/site-packages (from cffi>=1.14->cryptography<46,>=41.0.5->pyopenssl) (2.22)

@@ -1,0 +1,2 @@
+Requirement already satisfied: cffi in ./venv/lib/python3.10/site-packages (1.17.1)
+Requirement already satisfied: pycparser in ./venv/lib/python3.10/site-packages (from cffi) (2.22)

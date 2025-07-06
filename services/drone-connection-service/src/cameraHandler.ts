@@ -1,4 +1,4 @@
-// services/drone-connection-service/src/cameraHandler.ts - UPDATED FOR WEBRTC DATA CHANNELS
+// services/drone-connection-service/src/cameraHandler.ts - CONTROL ONLY (DATA VIA WEBRTC)
 import { Server, Socket } from 'socket.io';
 import { redisClient } from './redis';
 import { logger } from './utils/logger';
@@ -8,275 +8,279 @@ interface DroneSocket extends Socket {
   droneId?: string;
 }
 
-interface CameraFrame {
+interface CameraControlCommand {
   droneId: string;
   camera: 'front' | 'bottom';
-  timestamp: string;
-  frame: string; // Base64 encoded image or stream chunk
-  metadata: {
-    resolution: string;
-    fps: number;
-    quality: number;
-    transport?: string;
-  };
-}
-
-interface WebRTCCameraFrame {
-  droneId: string;
-  camera: 'front' | 'bottom';
-  timestamp: string;
-  frameData: ArrayBuffer | string;
-  metadata: {
-    resolution: string;
-    fps: number;
-    quality: number;
-    frameNumber: number;
-    bandwidth: string;
-    latency: number;
-    transport: 'webrtc_datachannel';
+  action: 'start' | 'stop' | 'configure';
+  config?: {
+    resolution?: string;
+    fps?: number;
+    quality?: number;
+    transport?: 'webrtc' | 'websocket';
   };
 }
 
 export const setupCameraHandler = (io: Server) => {
-  logger.info('🎥 Setting up hybrid camera handler (WebSocket control + WebRTC data)...');
+  logger.info('🎥 Setting up camera control handler (WebRTC data channels for frames)...');
 
   io.on('connection', (socket: DroneSocket) => {
     
-    // LEGACY: Handle camera frame from WebSocket (keep for backward compatibility)
-    socket.on('camera_frame', async (data: CameraFrame) => {
-      try {
-        const { droneId, camera, frame, timestamp, metadata } = data;
-        const receiveTime = Date.now();
-        
-        if (!socket.droneId || socket.droneId !== droneId) {
-          logger.warn(`⚠️ WebSocket camera frame from unregistered drone: ${droneId}`);
-          return;
-        }
-
-        // Mark as WebSocket transport
-        const enhancedMetadata = {
-          ...metadata,
-          transport: 'websocket',
-          receivedAt: new Date().toISOString()
-        };
-
-        // Store latest frame in Redis for immediate access
-        const streamKey = `camera:${droneId}:${camera}:latest`;
-        await redisClient.setex(streamKey, 5, JSON.stringify({
-          frame,
-          timestamp,
-          metadata: enhancedMetadata,
-          receivedAt: new Date().toISOString(),
-          transport: 'websocket'
-        }));
-
-        // Publish to subscribers
-        await redisClient.publish(`camera:${droneId}:${camera}:stream`, JSON.stringify({
-          droneId,
-          camera,
-          frame,
-          timestamp,
-          metadata: enhancedMetadata
-        }));
-
-        // Send acknowledgment back to drone
-        socket.emit('camera_stream_ack', {
-          droneId,
-          camera,
-          timestamp,
-          status: 'received',
-          serverTimestamp: receiveTime,
-          frameSize: frame.length,
-          processingTime: Date.now() - receiveTime,
-          transport: 'websocket'
-        });
-
-        logger.debug(`📸 WebSocket camera frame processed: ${droneId}:${camera} (${frame.length} bytes)`);
-
-      } catch (error) {
-        logger.error('❌ Error processing WebSocket camera frame:', error);
-      }
-    });
-
-    // NEW: Handle WebRTC data channel camera frames
-    socket.on('webrtc_camera_frame', async (data: WebRTCCameraFrame) => {
-      try {
-        const { droneId, camera, frameData, timestamp, metadata } = data;
-        const receiveTime = Date.now();
-        
-        if (!socket.droneId || socket.droneId !== droneId) {
-          logger.warn(`⚠️ WebRTC camera frame from unregistered drone: ${droneId}`);
-          return;
-        }
-
-        // Convert ArrayBuffer to base64 if needed
-        let frameString: string;
-        if (frameData instanceof ArrayBuffer) {
-          frameString = Buffer.from(frameData).toString('base64');
-        } else {
-          frameString = frameData as string;
-        }
-
-        // Enhanced metadata for WebRTC frames
-        const enhancedMetadata = {
-          ...metadata,
-          transport: 'webrtc_datachannel',
-          receivedAt: new Date().toISOString(),
-          serverProcessingTime: Date.now() - receiveTime
-        };
-
-        // Store latest frame in Redis
-        const streamKey = `camera:${droneId}:${camera}:latest`;
-        await redisClient.setex(streamKey, 5, JSON.stringify({
-          frame: frameString,
-          timestamp,
-          metadata: enhancedMetadata,
-          receivedAt: new Date().toISOString(),
-          transport: 'webrtc'
-        }));
-
-        // Publish to subscribers (realtime service picks this up)
-        await redisClient.publish(`camera:${droneId}:${camera}:stream`, JSON.stringify({
-          droneId,
-          camera,
-          frame: frameString,
-          timestamp,
-          metadata: enhancedMetadata
-        }));
-
-        // Optional: Send acknowledgment (WebRTC has its own reliability)
-        socket.emit('webrtc_camera_ack', {
-          droneId,
-          camera,
-          timestamp,
-          status: 'received',
-          serverTimestamp: receiveTime,
-          frameSize: frameString.length,
-          processingTime: Date.now() - receiveTime,
-          transport: 'webrtc'
-        });
-
-        logger.debug(`📸 WebRTC camera frame processed: ${droneId}:${camera} (${frameString.length} bytes, UDP)`);
-
-      } catch (error) {
-        logger.error('❌ Error processing WebRTC camera frame:', error);
-      }
-    });
-
-    // Handle camera stream start (CONTROL - stays on WebSocket)
-    socket.on('camera_stream_start', async (data: { droneId: string; camera: string; config: any }) => {
+    // CONTROL: Handle camera stream start (WebSocket command)
+    socket.on('camera_stream_start', async (data: CameraControlCommand) => {
       try {
         const { droneId, camera, config } = data;
         
+        if (!socket.droneId || socket.droneId !== droneId) {
+          logger.warn(`⚠️ Camera start command from unregistered drone: ${droneId}`);
+          return;
+        }
+
+        logger.info(`📹 Camera stream start command: ${droneId}:${camera}`);
+        
+        // Store stream control status in Redis
         const streamKey = `camera:${droneId}:${camera}:status`;
-        await redisClient.setex(streamKey, 60, JSON.stringify({
-          status: 'active',
+        const streamStatus = {
+          status: 'starting',
           config: {
             ...config,
-            preferredTransport: 'webrtc', // Prefer WebRTC for data
-            fallbackTransport: 'websocket'
+            preferredTransport: 'webrtc', // Force WebRTC for data
+            controlTransport: 'websocket'  // Commands via WebSocket
           },
           startedAt: new Date().toISOString(),
-          droneSocketId: socket.id
-        }));
+          droneSocketId: socket.id,
+          controlMethod: 'websocket'
+        };
 
-        // Notify subscribers that stream is available
+        await redisClient.setex(streamKey, 300, JSON.stringify(streamStatus));
+
+        // Check WebRTC capability for this drone
+        const webrtcCapability = await redisClient.get(`webrtc:${droneId}:capability`);
+        const hasWebRTC = webrtcCapability ? JSON.parse(webrtcCapability).dataChannelSupport : false;
+
+        if (hasWebRTC) {
+          // WebRTC available - recommend data channel for frames
+          logger.info(`📡 WebRTC data channels available for ${droneId}:${camera}`);
+          
+          // Update status to indicate WebRTC readiness
+          await redisClient.setex(streamKey, 300, JSON.stringify({
+            ...streamStatus,
+            status: 'webrtc_ready',
+            recommendedDataTransport: 'webrtc_datachannel',
+            dataChannelReady: true
+          }));
+        } else {
+          // Fallback to WebSocket for data
+          logger.warn(`⚠️ WebRTC not available for ${droneId}, using WebSocket fallback`);
+          
+          await redisClient.setex(streamKey, 300, JSON.stringify({
+            ...streamStatus,
+            status: 'websocket_fallback',
+            recommendedDataTransport: 'websocket',
+            dataChannelReady: false
+          }));
+        }
+
+        // Publish control event (NOT frame data)
         await redisClient.publish(`camera:${droneId}:${camera}:control`, JSON.stringify({
-          action: 'stream_started',
+          action: 'stream_start_command',
           droneId,
           camera,
-          config: {
-            ...config,
-            preferredTransport: 'webrtc'
-          }
+          config: streamStatus.config,
+          hasWebRTC,
+          timestamp: new Date().toISOString()
         }));
 
+        // Send acknowledgment (control only)
         socket.emit('camera_stream_ack', { 
           droneId, 
           camera, 
-          status: 'started',
-          recommendedTransport: 'webrtc',
-          fallbackTransport: 'websocket'
+          status: 'start_command_received',
+          recommendedTransport: hasWebRTC ? 'webrtc_datachannel' : 'websocket',
+          controlTransport: 'websocket',
+          webrtcAvailable: hasWebRTC
         });
         
-        logger.info(`📹 Camera stream started: ${droneId}:${camera} (WebRTC preferred)`);
+        logger.info(`✅ Camera start command processed: ${droneId}:${camera} (WebRTC: ${hasWebRTC})`);
 
       } catch (error) {
-        logger.error('❌ Error starting camera stream:', error);
+        logger.error('❌ Error processing camera start command:', error);
       }
     });
 
-    // Handle camera stream stop (CONTROL - stays on WebSocket)
+    // CONTROL: Handle camera stream stop (WebSocket command)
     socket.on('camera_stream_stop', async (data: { droneId: string; camera: string }) => {
       try {
         const { droneId, camera } = data;
         
+        if (!socket.droneId || socket.droneId !== droneId) {
+          logger.warn(`⚠️ Camera stop command from unregistered drone: ${droneId}`);
+          return;
+        }
+
+        logger.info(`🛑 Camera stream stop command: ${droneId}:${camera}`);
+        
+        // Update stream status
         const streamKey = `camera:${droneId}:${camera}:status`;
-        await redisClient.setex(streamKey, 10, JSON.stringify({
+        await redisClient.setex(streamKey, 60, JSON.stringify({
           status: 'stopped',
-          stoppedAt: new Date().toISOString()
+          stoppedAt: new Date().toISOString(),
+          controlMethod: 'websocket'
         }));
 
+        // Publish control event
         await redisClient.publish(`camera:${droneId}:${camera}:control`, JSON.stringify({
-          action: 'stream_stopped',
+          action: 'stream_stop_command',
           droneId,
-          camera
+          camera,
+          timestamp: new Date().toISOString()
         }));
 
-        socket.emit('camera_stream_ack', { droneId, camera, status: 'stopped' });
-        logger.info(`📹 Camera stream stopped: ${droneId}:${camera}`);
+        // Clean up any WebRTC streaming status
+        await redisClient.del(`webrtc:${droneId}:camera_streaming`);
+
+        socket.emit('camera_stream_ack', { 
+          droneId, 
+          camera, 
+          status: 'stop_command_received',
+          controlTransport: 'websocket'
+        });
+        
+        logger.info(`✅ Camera stop command processed: ${droneId}:${camera}`);
 
       } catch (error) {
-        logger.error('❌ Error stopping camera stream:', error);
+        logger.error('❌ Error processing camera stop command:', error);
       }
     });
 
-    // NEW: Handle WebRTC transport readiness
+    // CONTROL: Handle camera configuration (WebSocket command)
+    socket.on('camera_configure', async (data: CameraControlCommand) => {
+      try {
+        const { droneId, camera, config } = data;
+        
+        if (!socket.droneId || socket.droneId !== droneId) {
+          logger.warn(`⚠️ Camera configure command from unregistered drone: ${droneId}`);
+          return;
+        }
+
+        logger.info(`⚙️ Camera configure command: ${droneId}:${camera}`, config);
+        
+        // Update camera configuration in Redis
+        const configKey = `camera:${droneId}:${camera}:config`;
+        await redisClient.setex(configKey, 3600, JSON.stringify({
+          ...config,
+          updatedAt: new Date().toISOString(),
+          controlMethod: 'websocket'
+        }));
+
+        // Publish configuration change
+        await redisClient.publish(`camera:${droneId}:${camera}:control`, JSON.stringify({
+          action: 'configure_command',
+          droneId,
+          camera,
+          config,
+          timestamp: new Date().toISOString()
+        }));
+
+        socket.emit('camera_configure_ack', { 
+          droneId, 
+          camera, 
+          status: 'configure_command_received',
+          config,
+          controlTransport: 'websocket'
+        });
+        
+        logger.info(`✅ Camera configure command processed: ${droneId}:${camera}`);
+
+      } catch (error) {
+        logger.error('❌ Error processing camera configure command:', error);
+      }
+    });
+
+    // REMOVED: All frame handling (camera_frame, webrtc_camera_frame)
+    // Frame data now flows exclusively through WebRTC data channels
+
+    // NEW: Handle WebRTC transport readiness notification
     socket.on('webrtc_transport_ready', async (data: { droneId: string; cameras: string[] }) => {
       try {
         const { droneId, cameras } = data;
         
-        // Update camera capabilities to indicate WebRTC is ready
-        for (const camera of cameras) {
-          const capabilityKey = `camera:${droneId}:${camera}:capability`;
-          await redisClient.setex(capabilityKey, 300, JSON.stringify({
-            transport: 'webrtc',
-            dataChannelReady: true,
-            preferredProtocol: 'udp',
-            fallbackProtocol: 'websocket',
-            updatedAt: new Date().toISOString()
-          }));
+        if (!socket.droneId || socket.droneId !== droneId) {
+          logger.warn(`⚠️ WebRTC transport ready from unregistered drone: ${droneId}`);
+          return;
         }
 
-        // Notify that WebRTC transport is ready for cameras
-        await redisClient.publish(`camera:${droneId}:transport`, JSON.stringify({
-          action: 'webrtc_ready',
+        logger.info(`📡 WebRTC transport ready notification: ${droneId}`);
+        
+        // Update camera capabilities to indicate WebRTC readiness
+        for (const camera of cameras) {
+          const capabilityKey = `camera:${droneId}:${camera}:capability`;
+          await redisClient.setex(capabilityKey, 3600, JSON.stringify({
+            transport: 'webrtc_datachannel',
+            dataChannelReady: true,
+            protocol: 'udp',
+            ordered: false,
+            maxRetransmits: 0,
+            updatedAt: new Date().toISOString()
+          }));
+
+          // Update stream status if streaming
+          const statusKey = `camera:${droneId}:${camera}:status`;
+          const currentStatus = await redisClient.get(statusKey);
+          
+          if (currentStatus) {
+            const status = JSON.parse(currentStatus);
+            if (status.status === 'starting' || status.status === 'webrtc_ready') {
+              status.status = 'active';
+              status.dataTransport = 'webrtc_datachannel';
+              status.webrtcConnected = true;
+              await redisClient.setex(statusKey, 300, JSON.stringify(status));
+            }
+          }
+        }
+
+        // Notify subscribers about WebRTC readiness
+        await redisClient.publish(`webrtc:${droneId}:transport_ready`, JSON.stringify({
+          action: 'webrtc_transport_ready',
           droneId,
           cameras,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          capabilities: {
+            dataChannels: true,
+            udpOptimized: true,
+            lowLatency: true
+          }
         }));
 
         socket.emit('webrtc_transport_ack', { 
           droneId, 
-          status: 'ready', 
-          cameras 
+          status: 'ready_acknowledged', 
+          cameras,
+          dataChannelMode: 'udp_optimized'
         });
         
-        logger.info(`📡 WebRTC transport ready for ${droneId}: cameras [${cameras.join(', ')}]`);
+        logger.info(`✅ WebRTC transport ready for ${droneId}: cameras [${cameras.join(', ')}]`);
 
       } catch (error) {
         logger.error('❌ Error handling WebRTC transport ready:', error);
       }
     });
 
-    // NEW: Handle transport switching
+    // NEW: Handle transport switching (between WebRTC and WebSocket)
     socket.on('camera_switch_transport', async (data: { 
       droneId: string; 
       camera: string; 
-      transport: 'webrtc' | 'websocket' 
+      transport: 'webrtc' | 'websocket';
+      reason?: string;
     }) => {
       try {
-        const { droneId, camera, transport } = data;
+        const { droneId, camera, transport, reason } = data;
+        
+        if (!socket.droneId || socket.droneId !== droneId) {
+          logger.warn(`⚠️ Transport switch command from unregistered drone: ${droneId}`);
+          return;
+        }
+
+        logger.info(`🔄 Camera transport switch: ${droneId}:${camera} -> ${transport} (${reason || 'manual'})`);
         
         // Update stream status with new transport
         const streamKey = `camera:${droneId}:${camera}:status`;
@@ -284,18 +288,29 @@ export const setupCameraHandler = (io: Server) => {
         
         if (currentStatus) {
           const status = JSON.parse(currentStatus);
-          status.activeTransport = transport;
+          status.dataTransport = transport;
           status.transportSwitchedAt = new Date().toISOString();
+          status.switchReason = reason || 'manual';
           
-          await redisClient.setex(streamKey, 60, JSON.stringify(status));
+          // Update capability flags
+          if (transport === 'webrtc') {
+            status.webrtcActive = true;
+            status.udpOptimized = true;
+          } else {
+            status.webrtcActive = false;
+            status.udpOptimized = false;
+          }
+          
+          await redisClient.setex(streamKey, 300, JSON.stringify(status));
         }
 
-        // Notify subscribers of transport change
+        // Publish transport change event
         await redisClient.publish(`camera:${droneId}:${camera}:control`, JSON.stringify({
           action: 'transport_switched',
           droneId,
           camera,
           transport,
+          reason: reason || 'manual',
           timestamp: new Date().toISOString()
         }));
 
@@ -303,18 +318,72 @@ export const setupCameraHandler = (io: Server) => {
           droneId, 
           camera, 
           transport, 
-          status: 'switched' 
+          status: 'switched',
+          controlTransport: 'websocket'
         });
         
-        logger.info(`🔄 Camera transport switched: ${droneId}:${camera} -> ${transport}`);
+        logger.info(`✅ Camera transport switched: ${droneId}:${camera} -> ${transport}`);
 
       } catch (error) {
         logger.error('❌ Error switching camera transport:', error);
       }
     });
+
+    // CONTROL: Handle camera quality adjustment
+    socket.on('camera_adjust_quality', async (data: {
+      droneId: string;
+      camera: string;
+      quality: number;
+      bitrate?: number;
+      fps?: number;
+    }) => {
+      try {
+        const { droneId, camera, quality, bitrate, fps } = data;
+        
+        if (!socket.droneId || socket.droneId !== droneId) {
+          logger.warn(`⚠️ Camera quality adjust from unregistered drone: ${droneId}`);
+          return;
+        }
+
+        logger.info(`🎛️ Camera quality adjustment: ${droneId}:${camera} quality=${quality}`);
+        
+        // Store quality settings
+        const qualityKey = `camera:${droneId}:${camera}:quality`;
+        await redisClient.setex(qualityKey, 3600, JSON.stringify({
+          quality,
+          bitrate: bitrate || 'auto',
+          fps: fps || 30,
+          adjustedAt: new Date().toISOString(),
+          controlMethod: 'websocket'
+        }));
+
+        // Publish quality change
+        await redisClient.publish(`camera:${droneId}:${camera}:control`, JSON.stringify({
+          action: 'quality_adjusted',
+          droneId,
+          camera,
+          quality,
+          bitrate,
+          fps,
+          timestamp: new Date().toISOString()
+        }));
+
+        socket.emit('camera_quality_ack', { 
+          droneId, 
+          camera, 
+          quality,
+          status: 'quality_adjusted'
+        });
+        
+        logger.info(`✅ Camera quality adjusted: ${droneId}:${camera}`);
+
+      } catch (error) {
+        logger.error('❌ Error adjusting camera quality:', error);
+      }
+    });
   });
 
-  // Enhanced cleanup for both transports
+  // Enhanced cleanup for both control and data channels
   setInterval(async () => {
     try {
       const keys = await redisClient.keys('camera:*:*:status');
@@ -324,11 +393,11 @@ export const setupCameraHandler = (io: Server) => {
         const data = await redisClient.get(key);
         if (data) {
           const status = JSON.parse(data);
-          const lastUpdate = new Date(status.startedAt || status.stoppedAt).getTime();
+          const lastUpdate = new Date(status.startedAt || status.stoppedAt || status.updatedAt).getTime();
           
-          // Mark streams as inactive after 30 seconds
-          if (now - lastUpdate > 30000 && status.status === 'active') {
-            await redisClient.setex(key, 10, JSON.stringify({
+          // Mark streams as inactive after 60 seconds of no updates
+          if (now - lastUpdate > 60000 && status.status === 'active') {
+            await redisClient.setex(key, 30, JSON.stringify({
               ...status,
               status: 'inactive',
               reason: 'timeout',
@@ -341,7 +410,8 @@ export const setupCameraHandler = (io: Server) => {
               droneId,
               camera,
               reason: 'timeout',
-              lastTransport: status.activeTransport || 'unknown'
+              lastTransport: status.dataTransport || 'unknown',
+              timestamp: new Date().toISOString()
             }));
             
             logger.warn(`⚠️ Camera stream marked inactive: ${droneId}:${camera} (timeout)`);
@@ -351,14 +421,14 @@ export const setupCameraHandler = (io: Server) => {
     } catch (error) {
       logger.error('❌ Error in camera stream cleanup:', error);
     }
-  }, 10000);
+  }, 30000); // Check every 30 seconds
 
-  logger.info('✅ Hybrid camera handler configured (WebSocket control + WebRTC data)');
+  logger.info('✅ Camera control handler configured (WebRTC data channels for frames)');
 };
 
-// API endpoints for camera streams - ENHANCED
+// API endpoints for camera control and status
 export const setupCameraAPI = (app: any) => {
-  // Get available camera streams with transport info
+  // Get available camera streams with transport and WebRTC info
   app.get('/camera/streams', async (req: any, res: any) => {
     try {
       const keys = await redisClient.keys('camera:*:*:status');
@@ -370,16 +440,29 @@ export const setupCameraAPI = (app: any) => {
           const status = JSON.parse(data);
           const [, droneId, camera] = key.split(':');
           
-          // Get transport capability
-          const capabilityKey = `camera:${droneId}:${camera}:capability`;
-          const capability = await redisClient.get(capabilityKey);
-          const capabilityData = capability ? JSON.parse(capability) : {};
+          // Get transport capability and WebRTC info
+          const [capabilityData, webrtcCapability, qualityData] = await Promise.all([
+            redisClient.get(`camera:${droneId}:${camera}:capability`),
+            redisClient.get(`webrtc:${droneId}:capability`),
+            redisClient.get(`camera:${droneId}:${camera}:quality`)
+          ]);
+          
+          const capability = capabilityData ? JSON.parse(capabilityData) : {};
+          const webrtc = webrtcCapability ? JSON.parse(webrtcCapability) : {};
+          const quality = qualityData ? JSON.parse(qualityData) : {};
           
           streams.push({
             droneId,
             camera,
             ...status,
-            capability: capabilityData
+            capability,
+            webrtc,
+            quality,
+            transports: {
+              control: 'websocket',
+              data: capability.transport || 'websocket',
+              webrtcAvailable: webrtc.dataChannelSupport || false
+            }
           });
         }
       }
@@ -390,8 +473,10 @@ export const setupCameraAPI = (app: any) => {
         summary: {
           total: streams.length,
           active: streams.filter(s => s.status === 'active').length,
-          webrtc: streams.filter(s => s.capability?.transport === 'webrtc').length,
-          websocket: streams.filter(s => s.activeTransport === 'websocket').length
+          webrtcCapable: streams.filter(s => s.transports?.webrtcAvailable).length,
+          webrtcActive: streams.filter(s => s.dataTransport === 'webrtc_datachannel').length,
+          controlMethod: 'websocket',
+          dataMethod: 'mixed'
         }
       });
     } catch (error) {
@@ -399,7 +484,7 @@ export const setupCameraAPI = (app: any) => {
     }
   });
 
-  // Get latest frame from specific camera with transport info
+  // Get latest frame metadata (not frame data)
   app.get('/camera/:droneId/:camera/latest', async (req: any, res: any) => {
     try {
       const { droneId, camera } = req.params;
@@ -411,48 +496,66 @@ export const setupCameraAPI = (app: any) => {
       }
       
       const frame = JSON.parse(data);
+      
+      // Return metadata only, not frame data (for security and performance)
       res.json({
-        ...frame,
-        performance: {
-          transport: frame.transport || 'unknown',
-          latency: frame.metadata?.latency || 0,
-          serverProcessingTime: frame.metadata?.serverProcessingTime || 0
-        }
+        droneId: frame.droneId,
+        camera: frame.camera,
+        timestamp: frame.timestamp,
+        receivedAt: frame.receivedAt,
+        metadata: frame.metadata,
+        transport: frame.transport,
+        frameAvailable: true,
+        frameSize: frame.metadata?.frameSize || frame.frame?.length || 0
       });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to get frame' });
+      res.status(500).json({ error: 'Failed to get frame metadata' });
     }
   });
 
-  // Stream status endpoint with transport details
+  // Enhanced stream status with WebRTC details
   app.get('/camera/:droneId/:camera/status', async (req: any, res: any) => {
     try {
       const { droneId, camera } = req.params;
-      const statusKey = `camera:${droneId}:${camera}:status`;
-      const capabilityKey = `camera:${droneId}:${camera}:capability`;
       
-      const [statusData, capabilityData] = await Promise.all([
-        redisClient.get(statusKey),
-        redisClient.get(capabilityKey)
+      const [statusData, capabilityData, qualityData, webrtcData] = await Promise.all([
+        redisClient.get(`camera:${droneId}:${camera}:status`),
+        redisClient.get(`camera:${droneId}:${camera}:capability`),
+        redisClient.get(`camera:${droneId}:${camera}:quality`),
+        redisClient.get(`webrtc:${droneId}:active_session`)
       ]);
       
       if (!statusData) {
         return res.json({ 
+          droneId,
+          camera,
           status: 'unavailable',
-          transport: 'none'
+          controlTransport: 'websocket',
+          dataTransport: 'none',
+          webrtcAvailable: false
         });
       }
       
       const status = JSON.parse(statusData);
       const capability = capabilityData ? JSON.parse(capabilityData) : {};
+      const quality = qualityData ? JSON.parse(qualityData) : {};
+      const webrtc = webrtcData ? JSON.parse(webrtcData) : {};
       
       res.json({
         ...status,
         capability,
+        quality,
+        webrtc,
+        transports: {
+          control: 'websocket',
+          data: status.dataTransport || capability.transport || 'websocket',
+          webrtcAvailable: capability.dataChannelReady || false,
+          udpOptimized: capability.transport === 'webrtc_datachannel'
+        },
         recommendations: {
-          preferredTransport: capability.transport || 'websocket',
-          fallbackTransport: 'websocket',
-          dataChannelReady: capability.dataChannelReady || false
+          preferredDataTransport: capability.dataChannelReady ? 'webrtc_datachannel' : 'websocket',
+          controlTransport: 'websocket',
+          qualityOptimization: quality.quality >= 80 ? 'high' : 'standard'
         }
       });
     } catch (error) {
@@ -460,38 +563,57 @@ export const setupCameraAPI = (app: any) => {
     }
   });
 
-  // NEW: Transport capabilities endpoint
-  app.get('/camera/:droneId/capabilities', async (req: any, res: any) => {
+  // WebRTC transport capabilities endpoint
+  app.get('/camera/:droneId/webrtc-capability', async (req: any, res: any) => {
     try {
       const { droneId } = req.params;
-      const cameras = ['front', 'bottom'];
-      const capabilities: { [key: string]: any } = {};
       
-      for (const camera of cameras) {
-        const capabilityKey = `camera:${droneId}:${camera}:capability`;
-        const data = await redisClient.get(capabilityKey);
-        capabilities[camera] = data ? JSON.parse(data) : { transport: 'websocket' };
+      const [webrtcCapability, sessionData] = await Promise.all([
+        redisClient.get(`webrtc:${droneId}:capability`),
+        redisClient.get(`webrtc:${droneId}:active_session`)
+      ]);
+      
+      const capability = webrtcCapability ? JSON.parse(webrtcCapability) : null;
+      const session = sessionData ? JSON.parse(sessionData) : null;
+      
+      if (!capability) {
+        return res.status(404).json({ 
+          error: 'WebRTC not supported for this drone',
+          droneId,
+          webrtcAvailable: false
+        });
       }
       
       res.json({
         success: true,
         droneId,
-        capabilities,
-        summary: {
-          webrtcReady: Object.values(capabilities).some((cap: any) => cap.dataChannelReady),
-          preferredTransport: Object.values(capabilities).every((cap: any) => cap.transport === 'webrtc') ? 'webrtc' : 'mixed'
+        webrtcAvailable: true,
+        capability: {
+          ...capability,
+          dataChannelSupport: true,
+          udpOptimized: true,
+          orderedDelivery: false,
+          maxRetransmits: 0
+        },
+        activeSession: session,
+        transport: {
+          protocol: 'UDP',
+          reliability: 'unreliable',
+          ordered: false,
+          maxRetransmits: 0,
+          lowLatency: true
         }
       });
     } catch (error) {
-      res.status(500).json({ success: false, error: 'Failed to get capabilities' });
+      res.status(500).json({ success: false, error: 'Failed to get WebRTC capability' });
     }
   });
 
-  // NEW: Force transport switch endpoint
-  app.post('/camera/:droneId/:camera/switch-transport', async (req: any, res: any) => {
+  // Force transport switch endpoint
+  app.post('/camera/:droneId/:camera/force-transport', async (req: any, res: any) => {
     try {
       const { droneId, camera } = req.params;
-      const { transport } = req.body;
+      const { transport, reason } = req.body;
       
       if (!['webrtc', 'websocket'].includes(transport)) {
         return res.status(400).json({ error: 'Invalid transport type' });
@@ -503,11 +625,12 @@ export const setupCameraAPI = (app: any) => {
       
       if (statusData) {
         const status = JSON.parse(statusData);
-        status.activeTransport = transport;
+        status.dataTransport = transport;
         status.forcedTransport = true;
         status.forcedAt = new Date().toISOString();
+        status.forceReason = reason || 'manual';
         
-        await redisClient.setex(statusKey, 60, JSON.stringify(status));
+        await redisClient.setex(statusKey, 300, JSON.stringify(status));
         
         // Publish transport change
         await redisClient.publish(`camera:${droneId}:${camera}:control`, JSON.stringify({
@@ -515,21 +638,23 @@ export const setupCameraAPI = (app: any) => {
           droneId,
           camera,
           transport,
+          reason: reason || 'manual',
           timestamp: new Date().toISOString()
         }));
         
         res.json({ 
           success: true, 
-          message: `Transport switched to ${transport}`,
+          message: `Transport forced to ${transport}`,
           droneId,
           camera,
-          transport
+          transport,
+          controlMethod: 'websocket'
         });
       } else {
         res.status(404).json({ error: 'Camera stream not found' });
       }
     } catch (error) {
-      res.status(500).json({ error: 'Failed to switch transport' });
+      res.status(500).json({ error: 'Failed to force transport switch' });
     }
   });
 };
