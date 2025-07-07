@@ -1,4 +1,4 @@
-// services/realtime-service/src/redis.ts - OPTIMIZED FOR BINARY FRAME SUPPORT
+// services/realtime-service/src/redis.ts - FIXED TYPESCRIPT ERRORS
 import Redis from 'ioredis';
 import { logger } from './utils/logger';
 
@@ -14,21 +14,19 @@ const initRedis = async () => {
       throw new Error('REDIS_URL environment variable is not set');
     }
     
-    // Optimized Redis configuration for binary frame handling
+    // FIXED: Corrected Redis configuration without duplicate properties
     const redisConfig = {
       retryStrategy: (times: number) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
       },
-      maxRetriesPerRequest: 5,
+      maxRetriesPerRequest: 3, // FIXED: Removed duplicate
       connectTimeout: 10000,
       lazyConnect: false,
       // Optimize for binary data
       family: 4,
-      keepAlive: true,
+      keepAlive: 30000, // FIXED: Changed from boolean to number (30 seconds)
       enableReadyCheck: true,
-      // Increase buffer sizes for binary frames
-      maxRetriesPerRequest: 3,
       retryDelayOnFailover: 100,
       enableOfflineQueue: false,
       // Binary data optimization
