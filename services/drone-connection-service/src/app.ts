@@ -12,7 +12,7 @@ import { setupMAVROSHandler } from './mavrosHandler';
 
 // NEW: Import real drone handlers
 import { setupRealDroneHandler } from './handlers/realDroneHandler';
-import { setupWebRTCSignaling, setupWebRTCAPI } from './handlers/webrtcSignaling';
+//import { setupWebRTCSignaling, setupWebRTCAPI } from './handlers/webrtcSignaling';
 import { setupDroneRegistry } from './handlers/droneRegistry';
 
 import { initRedis, redisClient } from './redis';
@@ -282,12 +282,12 @@ const startServer = async () => {
     logger.info('✅ Camera API configured');
     
     // NEW: Setup WebRTC signaling
-    setupWebRTCSignaling(io);
-    logger.info('✅ WebRTC signaling configured');
+   // setupWebRTCSignaling(io);
+   // logger.info('✅ WebRTC signaling configured');
     
     // NEW: Setup WebRTC API endpoints
-    setupWebRTCAPI(app);
-    logger.info('✅ WebRTC API configured');
+   // setupWebRTCAPI(app);
+   // logger.info('✅ WebRTC API configured');
     
     // Setup MAVROS handler for message logging
     setupMAVROSHandler(io);
