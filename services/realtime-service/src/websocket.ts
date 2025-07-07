@@ -1,11 +1,16 @@
-// services/realtime-service/src/websocket.ts - UPDATED WITH CAMERA STREAMING AND PRECISION LANDING
+// services/realtime-service/src/websocket.ts - OPTIMIZED WITH BINARY FRAME SUPPORT
 import { Server, Socket } from 'socket.io';
 import { ExtendedError } from 'socket.io/dist/namespace';
-import { subscribeToDroneUpdates, getDroneState } from './redis';
+import { subscribeToDroneUpdates, getDroneState, redisClient, redisPubSub } from './redis';
 import { logger } from './utils/logger';
 import { verifySupabaseToken } from './utils/supabase-auth';
+import * as zlib from 'zlib';
+import { promisify } from 'util';
 
-// Define interface for authenticated socket
+// Promisify decompression
+const gunzipAsync = promisify(zlib.gunzip);
+
+// Define interface for authenticated socket with frame optimization
 interface AuthenticatedSocket extends Socket {
   user?: {
     id: string;
@@ -13,6 +18,39 @@ interface AuthenticatedSocket extends Socket {
     username?: string;
   };
   droneSubscriptions: Map<string, () => void>;
+  cameraSubscriptions: Map<string, CameraSubscription>;
+  frameOptimization: FrameOptimizationSettings;
+}
+
+interface CameraSubscription {
+  droneId: string;
+  camera: string;
+  transport: 'binary' | 'json';
+  quality: 'high' | 'medium' | 'low';
+  maxFPS: number;
+  lastFrameTime: number;
+  frameCount: number;
+  skipCount: number;
+  unsubscribe: () => void;
+}
+
+interface FrameOptimizationSettings {
+  enableBinaryFrames: boolean;
+  enableDecompression: boolean;
+  maxFrameRate: number;
+  adaptiveQuality: boolean;
+  bufferSize: number;
+}
+
+interface BinaryFrameData {
+  droneId: string;
+  camera: string;
+  timestamp: number;
+  frameNumber: number;
+  compressedData: string; // base64 encoded buffer
+  originalSize: number;
+  compressedSize: number;
+  metadata: any;
 }
 
 export const setupWebSocketServer = (io: Server) => {
@@ -25,24 +63,21 @@ export const setupWebSocketServer = (io: Server) => {
   // Enhanced authentication middleware
   io.use(async (socket: Socket, next: (err?: ExtendedError) => void) => {
     try {
-      logger.info(`New WebSocket connection attempt from ${socket.handshake.address}`);
+      logger.info(`New optimized WebSocket connection from ${socket.handshake.address}`);
       
       // Extract token with multiple fallback methods
       let token = null;
       
-      // Method 1: auth object
       if (socket.handshake.auth?.token) {
         token = socket.handshake.auth.token;
         logger.debug('Token found in handshake.auth.token');
       }
-      // Method 2: query parameters
       else if (socket.handshake.query?.token) {
         token = Array.isArray(socket.handshake.query.token) 
           ? socket.handshake.query.token[0] 
           : socket.handshake.query.token;
         logger.debug('Token found in handshake.query.token');
       }
-      // Method 3: authorization header
       else if (socket.handshake.headers?.authorization) {
         const authHeader = socket.handshake.headers.authorization;
         if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
@@ -53,35 +88,31 @@ export const setupWebSocketServer = (io: Server) => {
       
       if (!token) {
         logger.warn('WebSocket authentication failed: No token provided');
-        logger.debug('Available auth sources:', {
-          auth: !!socket.handshake.auth?.token,
-          query: !!socket.handshake.query?.token,
-          headers: !!socket.handshake.headers?.authorization
-        });
         return next(new Error('Authentication required - No token provided'));
       }
       
-      logger.debug('Verifying WebSocket token...');
+      logger.debug('Verifying optimized WebSocket token...');
       
-      // Verify token with enhanced error handling
-      let user = null;
-      try {
-        user = await verifySupabaseToken(token);
-      } catch (verifyError: any) {
-        logger.error('Token verification error:', verifyError.message);
-        return next(new Error(`Token verification failed: ${verifyError.message}`));
-      }
+      const user = await verifySupabaseToken(token);
       
       if (!user) {
         logger.warn('WebSocket authentication failed: Invalid or expired token');
         return next(new Error('Invalid or expired token'));
       }
       
-      // Set user data and initialize subscriptions
+      // Set user data and initialize optimized subscriptions
       (socket as AuthenticatedSocket).user = user;
       (socket as AuthenticatedSocket).droneSubscriptions = new Map();
+      (socket as AuthenticatedSocket).cameraSubscriptions = new Map();
+      (socket as AuthenticatedSocket).frameOptimization = {
+        enableBinaryFrames: true,
+        enableDecompression: true,
+        maxFrameRate: 30,
+        adaptiveQuality: true,
+        bufferSize: 2
+      };
       
-      logger.info(`WebSocket client authenticated: ${user.username || user.id} (${user.role})`);
+      logger.info(`Optimized WebSocket client authenticated: ${user?.username || user?.id} (${user?.role})`);
       next();
     } catch (error: any) {
       logger.error('Socket authentication error:', error.message);
@@ -94,22 +125,29 @@ export const setupWebSocketServer = (io: Server) => {
     const authenticatedSocket = socket as AuthenticatedSocket;
     const user = authenticatedSocket.user;
     
-    logger.info(`WebSocket client connected: ${authenticatedSocket.id}, user: ${user?.username || user?.id}`);
+    logger.info(`Optimized WebSocket client connected: ${authenticatedSocket.id}, user: ${user?.username || user?.id}`);
     
-    // Send immediate connection confirmation
+    // Send immediate connection confirmation with optimization capabilities
     authenticatedSocket.emit('connection_status', {
       status: 'connected',
       userId: user?.id,
       timestamp: Date.now(),
-      message: 'WebSocket connection established successfully'
+      message: 'Optimized WebSocket connection established',
+      optimizations: {
+        binaryFrames: authenticatedSocket.frameOptimization.enableBinaryFrames,
+        decompression: authenticatedSocket.frameOptimization.enableDecompression,
+        adaptiveQuality: authenticatedSocket.frameOptimization.adaptiveQuality,
+        maxFrameRate: authenticatedSocket.frameOptimization.maxFrameRate
+      }
     });
-    
-    // Enhanced subscription handler
-    authenticatedSocket.on('subscribe_drone', async (droneId: any) => {
+
+    // Enhanced drone subscription with optimization settings
+    authenticatedSocket.on('subscribe_drone', async (data: any) => {
       try {
-        const droneIdStr = String(droneId || '').trim();
+        const droneId = typeof data === 'object' ? data.droneId : String(data || '').trim();
+        const optimizations = typeof data === 'object' ? data.optimizations : {};
         
-        if (!droneIdStr) {
+        if (!droneId) {
           logger.warn(`Invalid drone ID received from ${authenticatedSocket.id}`);
           authenticatedSocket.emit('error', { 
             message: 'Invalid drone ID provided',
@@ -119,22 +157,30 @@ export const setupWebSocketServer = (io: Server) => {
           return;
         }
         
+        // Update frame optimization settings if provided
+        if (optimizations) {
+          authenticatedSocket.frameOptimization = {
+            ...authenticatedSocket.frameOptimization,
+            ...optimizations
+          };
+        }
+        
         // Check if already subscribed
-        if (authenticatedSocket.droneSubscriptions.has(droneIdStr)) {
-          logger.debug(`Client ${authenticatedSocket.id} already subscribed to ${droneIdStr}`);
+        if (authenticatedSocket.droneSubscriptions.has(droneId)) {
+          logger.debug(`Client ${authenticatedSocket.id} already subscribed to ${droneId}`);
           authenticatedSocket.emit('subscription_status', { 
-            droneId: droneIdStr, 
+            droneId, 
             status: 'already_subscribed',
             timestamp: Date.now()
           });
           return;
         }
         
-        logger.info(`Client ${authenticatedSocket.id} subscribing to drone ${droneIdStr}`);
+        logger.info(`Client ${authenticatedSocket.id} subscribing to optimized drone ${droneId}`);
         
         // Get and send initial state
         try {
-          const currentState = await getDroneState(droneIdStr);
+          const currentState = await getDroneState(droneId);
           
           if (currentState) {
             const timestamp = Date.now();
@@ -142,89 +188,278 @@ export const setupWebSocketServer = (io: Server) => {
               ...currentState,
               _meta: {
                 ...(currentState._meta || {}),
-                socketServerTimestamp: timestamp
+                optimizedSocketTimestamp: timestamp,
+                frameOptimization: authenticatedSocket.frameOptimization
               }
             };
             
             authenticatedSocket.emit('drone_state', { 
-              droneId: droneIdStr, 
+              droneId, 
               data: enhancedState,
               type: 'initial',
               timestamp: timestamp
             });
             
-            logger.debug(`Sent initial state for drone ${droneIdStr} to client ${authenticatedSocket.id}`);
+            logger.debug(`Sent optimized initial state for drone ${droneId}`);
           } else {
-            logger.debug(`No initial state found for drone ${droneIdStr}`);
-            
-            // Send empty state to indicate subscription is active
             authenticatedSocket.emit('drone_state', { 
-              droneId: droneIdStr, 
-              data: { id: droneIdStr, connected: false },
+              droneId, 
+              data: { id: droneId, connected: false },
               type: 'initial',
               timestamp: Date.now()
             });
           }
         } catch (stateError: any) {
-          logger.warn(`Could not get initial state for drone ${droneIdStr}: ${stateError.message}`);
-          
-          // Send minimal state to indicate subscription
+          logger.warn(`Could not get initial state for drone ${droneId}: ${stateError.message}`);
           authenticatedSocket.emit('drone_state', { 
-            droneId: droneIdStr, 
-            data: { id: droneIdStr, connected: false, error: 'State unavailable' },
+            droneId, 
+            data: { id: droneId, connected: false, error: 'State unavailable' },
             type: 'initial',
             timestamp: Date.now()
           });
         }
         
         // Subscribe to real-time updates
-        const unsubscribe = subscribeToDroneUpdates(droneIdStr, (data) => {
+        const unsubscribe = subscribeToDroneUpdates(droneId, (data) => {
           try {
             const timestamp = Date.now();
             authenticatedSocket.emit('drone_state', { 
-              droneId: droneIdStr, 
+              droneId, 
               data: {
                 ...data,
                 _meta: {
                   ...(data._meta || {}),
-                  socketServerTimestamp: timestamp
+                  optimizedSocketTimestamp: timestamp
                 }
               },
               type: 'update',
               timestamp: timestamp
             });
             
-            logger.debug(`Sent real-time update for drone ${droneIdStr} to client ${authenticatedSocket.id}`);
+            logger.debug(`Sent optimized real-time update for drone ${droneId}`);
           } catch (emitError: any) {
-            logger.error(`Error emitting drone state for ${droneIdStr}: ${emitError.message}`);
+            logger.error(`Error emitting optimized drone state for ${droneId}: ${emitError.message}`);
           }
         });
         
-        // Store unsubscribe function
-        authenticatedSocket.droneSubscriptions.set(droneIdStr, unsubscribe);
+        authenticatedSocket.droneSubscriptions.set(droneId, unsubscribe);
         
-        // Confirm subscription
         authenticatedSocket.emit('subscription_status', { 
-          droneId: droneIdStr, 
+          droneId, 
           status: 'subscribed',
           timestamp: Date.now(),
-          message: `Successfully subscribed to drone ${droneIdStr}`
+          optimizations: authenticatedSocket.frameOptimization
         });
         
-        logger.info(`Client ${authenticatedSocket.id} successfully subscribed to drone ${droneIdStr}`);
+        logger.info(`Client ${authenticatedSocket.id} successfully subscribed to optimized drone ${droneId}`);
         
       } catch (error: any) {
-        logger.error(`Error subscribing to drone ${droneId}: ${error.message}`);
+        logger.error(`Error subscribing to optimized drone: ${error.message}`);
         authenticatedSocket.emit('error', { 
           message: 'Failed to subscribe to drone updates',
-          droneId: String(droneId || ''),
           error: error.message,
           code: 'SUBSCRIPTION_FAILED',
           timestamp: Date.now()
         });
       }
     });
-    
+
+    // OPTIMIZED: Binary camera stream subscription
+    authenticatedSocket.on('subscribe_camera_binary', async (data: {
+      droneId: string;
+      camera: string;
+      transport?: 'binary' | 'json';
+      quality?: 'high' | 'medium' | 'low';
+      maxFPS?: number;
+    }) => {
+      try {
+        const { droneId, camera, transport = 'binary', quality = 'high', maxFPS = 30 } = data;
+        const subscriptionKey = `${droneId}:${camera}:binary`;
+        
+        logger.info(`Binary camera subscription: ${droneId}:${camera} (${transport}, ${quality})`);
+        
+        // Check if already subscribed
+        if (authenticatedSocket.cameraSubscriptions.has(subscriptionKey)) {
+          logger.debug(`Already subscribed to binary camera: ${subscriptionKey}`);
+          return;
+        }
+        
+        // Subscribe to binary camera stream
+        const binaryStreamChannel = `camera:${droneId}:${camera}:binary_stream`;
+        
+        const binaryFrameHandler = async (channel: string, message: string) => {
+          if (channel === binaryStreamChannel) {
+            try {
+              const frameData: { action: string; frameData: BinaryFrameData } = JSON.parse(message);
+              
+              if (frameData.action === 'binary_frame') {
+                await handleOptimizedBinaryFrame(authenticatedSocket, frameData.frameData, subscriptionKey);
+              }
+            } catch (parseError) {
+              logger.error(`Error parsing binary frame message: ${parseError}`);
+            }
+          }
+        };
+        
+        // Subscribe to Redis channel
+        redisPubSub.subscribe(binaryStreamChannel);
+        redisPubSub.on('message', binaryFrameHandler);
+        
+        // Create subscription record
+        const subscription: CameraSubscription = {
+          droneId,
+          camera,
+          transport,
+          quality,
+          maxFPS,
+          lastFrameTime: 0,
+          frameCount: 0,
+          skipCount: 0,
+          unsubscribe: () => {
+            redisPubSub.unsubscribe(binaryStreamChannel);
+            redisPubSub.off('message', binaryFrameHandler);
+          }
+        };
+        
+        authenticatedSocket.cameraSubscriptions.set(subscriptionKey, subscription);
+        
+        // Get latest binary frame if available
+        try {
+          const latestFrame = await redisClient.get(`camera:${droneId}:${camera}:latest_binary`);
+          if (latestFrame) {
+            const frameData: BinaryFrameData = JSON.parse(latestFrame);
+            await handleOptimizedBinaryFrame(authenticatedSocket, frameData, subscriptionKey);
+          }
+        } catch (latestError) {
+          logger.debug(`No latest binary frame available for ${droneId}:${camera}`);
+        }
+        
+        authenticatedSocket.emit('camera_binary_subscription_status', { 
+          droneId, 
+          camera, 
+          status: 'subscribed',
+          transport,
+          quality,
+          timestamp: Date.now()
+        });
+        
+        logger.info(`Client ${authenticatedSocket.id} subscribed to binary camera ${droneId}:${camera}`);
+        
+      } catch (error: any) {
+        logger.error(`Binary camera subscription error: ${error.message}`);
+        authenticatedSocket.emit('camera_binary_subscription_error', { 
+          droneId: data.droneId, 
+          camera: data.camera, 
+          error: error.message,
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    // Handle binary camera unsubscribe
+    authenticatedSocket.on('unsubscribe_camera_binary', (data: { droneId: string; camera: string }) => {
+      try {
+        const { droneId, camera } = data;
+        const subscriptionKey = `${droneId}:${camera}:binary`;
+        
+        const subscription = authenticatedSocket.cameraSubscriptions.get(subscriptionKey);
+        if (subscription) {
+          subscription.unsubscribe();
+          authenticatedSocket.cameraSubscriptions.delete(subscriptionKey);
+          
+          authenticatedSocket.emit('camera_binary_subscription_status', { 
+            droneId, 
+            camera, 
+            status: 'unsubscribed',
+            timestamp: Date.now()
+          });
+          
+          logger.info(`Client ${authenticatedSocket.id} unsubscribed from binary camera ${droneId}:${camera}`);
+        }
+      } catch (error: any) {
+        logger.error(`Binary camera unsubscribe error: ${error.message}`);
+      }
+    });
+
+    // COMPATIBILITY: Legacy camera stream subscription
+    authenticatedSocket.on('subscribe_camera_stream', async (data: { 
+      droneId: string; 
+      camera: string; 
+      channels: string[] 
+    }) => {
+      try {
+        const { droneId, camera, channels } = data;
+        
+        logger.info(`Legacy camera stream subscription: ${droneId}:${camera}`);
+        
+        // Convert to binary subscription
+        await authenticatedSocket.emit('subscribe_camera_binary', {
+          droneId,
+          camera,
+          transport: 'json', // Legacy mode
+          quality: 'medium'
+        });
+        
+        logger.info(`Converted legacy camera subscription to optimized: ${droneId}:${camera}`);
+        
+      } catch (error: any) {
+        logger.error(`Legacy camera subscription error: ${error.message}`);
+      }
+    });
+
+    // Update frame optimization settings
+    authenticatedSocket.on('update_frame_optimization', (settings: Partial<FrameOptimizationSettings>) => {
+      try {
+        authenticatedSocket.frameOptimization = {
+          ...authenticatedSocket.frameOptimization,
+          ...settings
+        };
+        
+        authenticatedSocket.emit('frame_optimization_updated', {
+          settings: authenticatedSocket.frameOptimization,
+          timestamp: Date.now()
+        });
+        
+        logger.info(`Frame optimization settings updated for client ${authenticatedSocket.id}`);
+      } catch (error: any) {
+        logger.error(`Error updating frame optimization: ${error.message}`);
+      }
+    });
+
+    // Get camera performance metrics
+    authenticatedSocket.on('get_camera_metrics', (data: { droneId?: string; camera?: string }) => {
+      try {
+        const metrics: any = {};
+        
+        for (const [key, subscription] of authenticatedSocket.cameraSubscriptions.entries()) {
+          if (!data.droneId || subscription.droneId === data.droneId) {
+            if (!data.camera || subscription.camera === data.camera) {
+              metrics[key] = {
+                droneId: subscription.droneId,
+                camera: subscription.camera,
+                transport: subscription.transport,
+                quality: subscription.quality,
+                frameCount: subscription.frameCount,
+                skipCount: subscription.skipCount,
+                skipRate: subscription.frameCount > 0 ? 
+                  (subscription.skipCount / subscription.frameCount * 100).toFixed(1) : 0,
+                maxFPS: subscription.maxFPS,
+                actualFPS: calculateActualFPS(subscription)
+              };
+            }
+          }
+        }
+        
+        authenticatedSocket.emit('camera_metrics', {
+          metrics,
+          frameOptimization: authenticatedSocket.frameOptimization,
+          timestamp: Date.now()
+        });
+      } catch (error: any) {
+        logger.error(`Error getting camera metrics: ${error.message}`);
+      }
+    });
+
     // Enhanced unsubscribe handler
     authenticatedSocket.on('unsubscribe_drone', (droneId: any) => {
       try {
@@ -244,324 +479,199 @@ export const setupWebSocketServer = (io: Server) => {
           authenticatedSocket.emit('subscription_status', { 
             droneId: droneIdStr, 
             status: 'unsubscribed',
-            timestamp: Date.now(),
-            message: `Unsubscribed from drone ${droneIdStr}`
-          });
-          
-          logger.info(`Client ${authenticatedSocket.id} unsubscribed from drone ${droneIdStr}`);
-        } else {
-          logger.warn(`Client ${authenticatedSocket.id} tried to unsubscribe from ${droneIdStr} but was not subscribed`);
-        }
-      } catch (error: any) {
-        logger.error(`Error unsubscribing from drone ${droneId}: ${error.message}`);
-      }
-    });
-
-    // Camera stream subscription handler
-    authenticatedSocket.on('subscribe_camera_stream', async (data: { droneId: string; camera: string; channels: string[] }) => {
-      try {
-        const { droneId, camera, channels } = data;
-        
-        logger.info(`Camera stream subscription: ${droneId}:${camera}`);
-        
-        // Subscribe to each camera channel
-        for (const channel of channels) {
-          const channelKey = `${channel}:${authenticatedSocket.id}`;
-          
-          const unsubscribe = subscribeToDroneUpdates(droneId, (streamData) => {
-            if (channel.includes('stream')) {
-              // Emit camera frame data
-              authenticatedSocket.emit('camera_frame', {
-                droneId: streamData.droneId,
-                camera: streamData.camera,
-                frame: streamData.frame,
-                timestamp: streamData.timestamp,
-                metadata: streamData.metadata
-              });
-            } else if (channel.includes('control')) {
-              // Emit camera control messages
-              authenticatedSocket.emit('camera_control', {
-                droneId: streamData.droneId,
-                camera: streamData.camera,
-                action: streamData.action,
-                timestamp: streamData.timestamp
-              });
-            }
-          });
-          
-          // Store unsubscribe function with channel key
-          authenticatedSocket.droneSubscriptions.set(channelKey, unsubscribe);
-        }
-        
-        authenticatedSocket.emit('camera_subscription_status', { 
-          droneId, 
-          camera, 
-          status: 'subscribed',
-          timestamp: Date.now()
-        });
-        
-        logger.info(`Client ${authenticatedSocket.id} subscribed to camera ${droneId}:${camera}`);
-        
-      } catch (error: any) {
-        logger.error(`Camera subscription error: ${error.message}`);
-        authenticatedSocket.emit('camera_subscription_error', { 
-          droneId: data.droneId, 
-          camera: data.camera, 
-          error: error.message,
-          timestamp: Date.now()
-        });
-      }
-    });
-
-    // Camera stream unsubscribe handler
-    authenticatedSocket.on('unsubscribe_camera_stream', (data: { droneId: string; camera: string }) => {
-      try {
-        const { droneId, camera } = data;
-        const pattern = `camera:${droneId}:${camera}`;
-        
-        // Find and remove all camera subscriptions for this drone/camera
-        for (const [key, unsubscribe] of authenticatedSocket.droneSubscriptions.entries()) {
-          if (key.includes(pattern)) {
-            unsubscribe();
-            authenticatedSocket.droneSubscriptions.delete(key);
-          }
-        }
-        
-        authenticatedSocket.emit('camera_subscription_status', { 
-          droneId, 
-          camera, 
-          status: 'unsubscribed',
-          timestamp: Date.now()
-        });
-        
-        logger.info(`Client ${authenticatedSocket.id} unsubscribed from camera ${droneId}:${camera}`);
-        
-      } catch (error: any) {
-        logger.error(`Camera unsubscribe error: ${error.message}`);
-      }
-    });
-
-    // Camera subscriber management
-    authenticatedSocket.on('camera_subscriber_added', (data: { droneId: string; camera: string; subscriberId: string }) => {
-      logger.info(`Camera subscriber added: ${data.subscriberId} for ${data.droneId}:${data.camera}`);
-    });
-
-    authenticatedSocket.on('camera_subscriber_removed', (data: { droneId: string; camera: string; subscriberId: string }) => {
-      logger.info(`Camera subscriber removed: ${data.subscriberId} for ${data.droneId}:${data.camera}`);
-    });
-
-    // Camera config change handler
-    authenticatedSocket.on('camera_config_change', (data: { droneId: string; camera: string; config: any }) => {
-      logger.info(`Camera config change requested for ${data.droneId}:${data.camera}:`, data.config);
-      // This would typically forward the config change to the drone-connection-service
-    });
-
-    // Enhanced subscription handler with precision landing support
-    authenticatedSocket.on('subscribe', async (channel: string) => {
-      try {
-        logger.info(`Client ${authenticatedSocket.id} subscribing to channel: ${channel}`);
-        
-        // Handle precision landing output subscriptions
-        if (channel.startsWith('precision_land_output:')) {
-          const droneId = channel.split(':')[1];
-          
-          if (!droneId) {
-            authenticatedSocket.emit('error', { 
-              message: 'Invalid precision landing channel format',
-              channel,
-              timestamp: Date.now()
-            });
-            return;
-          }
-          
-          // Subscribe to Redis channel for precision landing output
-          const { redisPubSub } = await import('./redis');
-          
-          const messageHandler = (redisChannel: string, message: string) => {
-            if (redisChannel === channel) {
-              try {
-                const data = JSON.parse(message);
-                authenticatedSocket.emit('precision_land_output', data);
-              } catch (parseError) {
-                logger.error(`Error parsing precision landing message: ${parseError}`);
-              }
-            }
-          };
-          
-          redisPubSub.subscribe(channel);
-          redisPubSub.on('message', messageHandler);
-          
-          // Store cleanup function
-          const cleanupKey = `precision_output_${droneId}`;
-          authenticatedSocket.droneSubscriptions.set(cleanupKey, () => {
-            redisPubSub.unsubscribe(channel);
-            redisPubSub.off('message', messageHandler);
-          });
-          
-          authenticatedSocket.emit('subscription_status', { 
-            channel, 
-            status: 'subscribed',
             timestamp: Date.now()
           });
           
-          logger.info(`Client ${authenticatedSocket.id} subscribed to precision landing output: ${droneId}`);
+          logger.info(`Client ${authenticatedSocket.id} unsubscribed from optimized drone ${droneIdStr}`);
         }
-        
-        // Handle precision landing status subscriptions
-        else if (channel.startsWith('precision_land_status:')) {
-          const droneId = channel.split(':')[1];
-          
-          if (!droneId) {
-            authenticatedSocket.emit('error', { 
-              message: 'Invalid precision landing status channel format',
-              channel,
-              timestamp: Date.now()
-            });
-            return;
-          }
-          
-          // Subscribe to Redis channel for precision landing status
-          const { redisPubSub } = await import('./redis');
-          
-          const statusHandler = (redisChannel: string, message: string) => {
-            if (redisChannel === channel) {
-              try {
-                const data = JSON.parse(message);
-                authenticatedSocket.emit('precision_land_status', data);
-              } catch (parseError) {
-                logger.error(`Error parsing precision landing status: ${parseError}`);
-              }
-            }
-          };
-          
-          redisPubSub.subscribe(channel);
-          redisPubSub.on('message', statusHandler);
-          
-          // Store cleanup function
-          const cleanupKey = `precision_status_${droneId}`;
-          authenticatedSocket.droneSubscriptions.set(cleanupKey, () => {
-            redisPubSub.unsubscribe(channel);
-            redisPubSub.off('message', statusHandler);
-          });
-          
-          authenticatedSocket.emit('subscription_status', { 
-            channel, 
-            status: 'subscribed',
-            timestamp: Date.now()
-          });
-          
-          logger.info(`Client ${authenticatedSocket.id} subscribed to precision landing status: ${droneId}`);
-        }
-        
       } catch (error: any) {
-        logger.error(`Error handling subscription to ${channel}: ${error.message}`);
-        authenticatedSocket.emit('error', { 
-          message: 'Failed to subscribe to channel',
-          channel,
-          error: error.message,
-          timestamp: Date.now()
-        });
+        logger.error(`Error unsubscribing from drone: ${error.message}`);
       }
     });
 
-    // Add unsubscribe handler for precision landing channels
-    authenticatedSocket.on('unsubscribe', (channel: string) => {
-      try {
-        if (channel.startsWith('precision_land_output:')) {
-          const droneId = channel.split(':')[1];
-          const cleanupKey = `precision_output_${droneId}`;
-          
-          const cleanup = authenticatedSocket.droneSubscriptions.get(cleanupKey);
-          if (cleanup) {
-            cleanup();
-            authenticatedSocket.droneSubscriptions.delete(cleanupKey);
-          }
-          
-          logger.info(`Client ${authenticatedSocket.id} unsubscribed from precision landing output: ${droneId}`);
-        }
-        
-        else if (channel.startsWith('precision_land_status:')) {
-          const droneId = channel.split(':')[1];
-          const cleanupKey = `precision_status_${droneId}`;
-          
-          const cleanup = authenticatedSocket.droneSubscriptions.get(cleanupKey);
-          if (cleanup) {
-            cleanup();
-            authenticatedSocket.droneSubscriptions.delete(cleanupKey);
-          }
-          
-          logger.info(`Client ${authenticatedSocket.id} unsubscribed from precision landing status: ${droneId}`);
-        }
-      } catch (error: any) {
-        logger.error(`Error unsubscribing from ${channel}: ${error.message}`);
-      }
-    });
-    
-    // Enhanced ping/pong handler for latency measurement
+    // Enhanced ping/pong with optimization metrics
     authenticatedSocket.on('ping', (data: any) => {
       try {
         const serverTime = Date.now();
         const clientTime = data && typeof data === 'object' ? data.timestamp : serverTime;
         
+        // Calculate camera metrics summary
+        const cameraMetricsSummary = {
+          totalSubscriptions: authenticatedSocket.cameraSubscriptions.size,
+          binarySubscriptions: Array.from(authenticatedSocket.cameraSubscriptions.values())
+            .filter(s => s.transport === 'binary').length,
+          totalFrames: Array.from(authenticatedSocket.cameraSubscriptions.values())
+            .reduce((sum, s) => sum + s.frameCount, 0),
+          totalSkipped: Array.from(authenticatedSocket.cameraSubscriptions.values())
+            .reduce((sum, s) => sum + s.skipCount, 0)
+        };
+        
         authenticatedSocket.emit('pong', {
           clientSentTime: clientTime,
           serverTime: serverTime,
-          roundTripTime: serverTime - clientTime
+          roundTripTime: serverTime - clientTime,
+          optimizations: authenticatedSocket.frameOptimization,
+          cameraMetrics: cameraMetricsSummary
         });
         
-        logger.debug(`Handled ping from client ${authenticatedSocket.id}, RTT: ${serverTime - clientTime}ms`);
+        logger.debug(`Handled optimized ping from client ${authenticatedSocket.id}`);
       } catch (error: any) {
-        logger.error(`Error handling ping from ${authenticatedSocket.id}: ${error.message}`);
+        logger.error(`Error handling optimized ping: ${error.message}`);
       }
     });
-    
-    // Handle client errors
-    authenticatedSocket.on('error', (error: any) => {
-      logger.error(`WebSocket client error for ${authenticatedSocket.id}:`, error);
-    });
-    
+
     // Enhanced disconnect handler
     authenticatedSocket.on('disconnect', (reason: string) => {
       try {
-        logger.info(`WebSocket client disconnecting: ${authenticatedSocket.id}, reason: ${reason}`);
+        logger.info(`Optimized WebSocket client disconnecting: ${authenticatedSocket.id}, reason: ${reason}`);
         
-        // Clean up all subscriptions
-        const subscriptionCount = authenticatedSocket.droneSubscriptions.size;
-        
+        // Clean up drone subscriptions
+        const droneSubscriptionCount = authenticatedSocket.droneSubscriptions.size;
         for (const [key, unsubscribe] of authenticatedSocket.droneSubscriptions.entries()) {
           try {
             unsubscribe();
-            logger.debug(`Cleaned up subscription: ${key}`);
+            logger.debug(`Cleaned up drone subscription: ${key}`);
           } catch (cleanupError: any) {
-            logger.error(`Error cleaning up subscription ${key}: ${cleanupError.message}`);
+            logger.error(`Error cleaning up drone subscription ${key}: ${cleanupError.message}`);
           }
         }
-        
         authenticatedSocket.droneSubscriptions.clear();
         
-        logger.info(`WebSocket client disconnected: ${authenticatedSocket.id}, cleaned up ${subscriptionCount} subscriptions`);
+        // Clean up camera subscriptions
+        const cameraSubscriptionCount = authenticatedSocket.cameraSubscriptions.size;
+        for (const [key, subscription] of authenticatedSocket.cameraSubscriptions.entries()) {
+          try {
+            subscription.unsubscribe();
+            logger.debug(`Cleaned up camera subscription: ${key}`);
+          } catch (cleanupError: any) {
+            logger.error(`Error cleaning up camera subscription ${key}: ${cleanupError.message}`);
+          }
+        }
+        authenticatedSocket.cameraSubscriptions.clear();
+        
+        logger.info(`Optimized WebSocket client disconnected: ${authenticatedSocket.id}, ` +
+          `cleaned up ${droneSubscriptionCount} drone + ${cameraSubscriptionCount} camera subscriptions`);
       } catch (error: any) {
-        logger.error(`Error handling disconnect for ${authenticatedSocket.id}: ${error.message}`);
+        logger.error(`Error handling optimized disconnect: ${error.message}`);
       }
     });
   });
   
-  // Global error handlers
-  io.engine.on('connection_error', (err: any) => {
-    logger.error('WebSocket connection error:', {
-      message: err.message,
-      type: err.type,
-      description: err.description,
-      context: err.context,
-      req: err.req?.url
-    });
-  });
-  
-  // Log server events
-  io.on('connect_error', (err: any) => {
-    logger.error('WebSocket server connection error:', err);
-  });
-  
-  logger.info('WebSocket server configured successfully with camera streaming and precision landing support');
+  logger.info('Optimized WebSocket server configured with binary frame support and compression');
   return io;
 };
+
+// OPTIMIZATION: Handle binary frame with adaptive quality and frame skipping
+async function handleOptimizedBinaryFrame(
+  socket: AuthenticatedSocket, 
+  frameData: BinaryFrameData, 
+  subscriptionKey: string
+): Promise<void> {
+  try {
+    const subscription = socket.cameraSubscriptions.get(subscriptionKey);
+    if (!subscription) return;
+    
+    const now = Date.now();
+    const frameInterval = 1000 / subscription.maxFPS;
+    
+    // OPTIMIZATION 1: Frame rate limiting
+    if (now - subscription.lastFrameTime < frameInterval) {
+      subscription.skipCount++;
+      logger.debug(`Frame skipped for ${subscriptionKey} (rate limiting)`);
+      return;
+    }
+    
+    subscription.lastFrameTime = now;
+    subscription.frameCount++;
+    
+    // OPTIMIZATION 2: Adaptive quality based on client settings
+    if (socket.frameOptimization.adaptiveQuality) {
+      // Adjust quality based on connection performance
+      const skipRate = subscription.skipCount / subscription.frameCount;
+      if (skipRate > 0.1 && subscription.quality === 'high') {
+        subscription.quality = 'medium';
+        logger.debug(`Adaptive quality reduction for ${subscriptionKey}`);
+      } else if (skipRate < 0.05 && subscription.quality === 'medium') {
+        subscription.quality = 'high';
+        logger.debug(`Adaptive quality increase for ${subscriptionKey}`);
+      }
+    }
+    
+    // OPTIMIZATION 3: Binary frame processing
+    if (socket.frameOptimization.enableBinaryFrames && subscription.transport === 'binary') {
+      let processedFrameData: any = frameData;
+      
+      // Decompress if needed and enabled
+      if (socket.frameOptimization.enableDecompression && frameData.compressedData) {
+        try {
+          const compressedBuffer = Buffer.from(frameData.compressedData, 'base64');
+          const decompressedBuffer = await gunzipAsync(compressedBuffer);
+          
+          processedFrameData = {
+            ...frameData,
+            decompressedData: decompressedBuffer.toString('base64'),
+            decompressed: true,
+            processingTime: Date.now() - now
+          };
+        } catch (decompressionError) {
+          logger.warn(`Decompression failed for ${subscriptionKey}: ${decompressionError}`);
+          processedFrameData = { ...frameData, decompressed: false };
+        }
+      }
+      
+      // Send optimized binary frame
+      socket.emit('camera_frame_binary', {
+        droneId: frameData.droneId,
+        camera: frameData.camera,
+        timestamp: frameData.timestamp,
+        frameNumber: frameData.frameNumber,
+        frameData: processedFrameData,
+        subscription: {
+          quality: subscription.quality,
+          transport: subscription.transport,
+          actualFPS: calculateActualFPS(subscription)
+        },
+        optimization: {
+          compressed: frameData.compressedSize < frameData.originalSize,
+          compressionRatio: frameData.originalSize / frameData.compressedSize,
+          decompressed: processedFrameData.decompressed || false,
+          skipCount: subscription.skipCount,
+          frameCount: subscription.frameCount
+        }
+      });
+      
+      logger.debug(`Optimized binary frame sent: ${subscriptionKey} ` +
+        `(${frameData.originalSize}→${frameData.compressedSize} bytes, ${subscription.quality})`);
+    } else {
+      // Fallback to legacy JSON format
+      socket.emit('camera_frame', {
+        droneId: frameData.droneId,
+        camera: frameData.camera,
+        timestamp: frameData.timestamp,
+        frame: frameData.compressedData, // Already base64
+        metadata: {
+          ...frameData.metadata,
+          transport: 'json_fallback',
+          optimization: {
+            originalTransport: 'binary',
+            fallbackReason: 'client_compatibility'
+          }
+        }
+      });
+      
+      logger.debug(`Legacy frame sent for ${subscriptionKey} (fallback mode)`);
+    }
+    
+  } catch (error: any) {
+    logger.error(`Error handling optimized binary frame for ${subscriptionKey}: ${error.message}`);
+  }
+}
+
+// Calculate actual FPS for a subscription
+function calculateActualFPS(subscription: CameraSubscription): number {
+  const timeSinceStart = Date.now() - (subscription.lastFrameTime - (subscription.frameCount * 1000 / subscription.maxFPS));
+  if (timeSinceStart > 0 && subscription.frameCount > 0) {
+    return (subscription.frameCount * 1000) / timeSinceStart;
+  }
+  return 0;
+}
