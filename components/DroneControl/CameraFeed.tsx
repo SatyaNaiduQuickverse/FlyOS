@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Eye, Maximize2, SplitSquareVertical, PictureInPicture, Download, ZoomIn, ZoomOut, Layers, Wifi, WifiOff, Zap, Settings } from 'lucide-react';
 import { useCameraStream } from '../../lib/hooks/useCameraStream';
-import { useOptimizedCameraStream } from '../../lib/hooks/useOptimizedCameraStream'; // NEW: Optimized hook
 
 interface DroneBasic {
   id: string;
@@ -38,12 +37,12 @@ const CameraFeed: React.FC<CameraFeedProps> = ({ drone, isControlEnabled }) => {
   });
   
   // ENHANCED: Use optimized streams when available, fallback to legacy
-  const frontStreamOptimized = useOptimizedCameraStream(
+  const frontStreamOptimized = useCameraStream(
     drone.id, 
     'front', 
     useOptimizedStreaming ? optimizationSettings : null
   );
-  const bottomStreamOptimized = useOptimizedCameraStream(
+  const bottomStreamOptimized = useCameraStream(
     drone.id, 
     'bottom', 
     useOptimizedStreaming ? optimizationSettings : null

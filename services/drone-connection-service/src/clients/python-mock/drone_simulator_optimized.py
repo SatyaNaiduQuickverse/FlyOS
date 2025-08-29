@@ -737,7 +737,7 @@ class OptimizedProductionDrone:
 
 def main():
     parser = argparse.ArgumentParser(description='Optimized Production Drone with Binary Frames & Compression')
-    parser.add_argument('--server', default='http://localhost:4005', help='Server URL')
+    parser.add_argument('--server', default='http://65.1.63.189:4005', help='Server URL')
     parser.add_argument('--drone-id', default='opt-drone-001', help='Drone ID')
     parser.add_argument('--model', default='FlyOS_MQ7_Optimized', help='Drone model')
     parser.add_argument('--lat', type=float, default=18.5204, help='Base latitude')

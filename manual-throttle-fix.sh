@@ -1,3 +1,10 @@
+#!/bin/bash
+# manual-throttle-fix.sh - Apply throttling manually
+
+echo "🔧 Applying sync throttling fix manually..."
+
+# Create the throttled version of initDatabase.ts
+cat > services/user-management-service/src/scripts/initDatabase.ts << 'EOF'
 // services/user-management-service/src/scripts/initDatabase.ts - WITH THROTTLING
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
@@ -135,3 +142,11 @@ export const initDatabase = async () => {
 if (require.main === module) {
   initDatabase().then(() => process.exit(0)).catch(() => process.exit(1));
 }
+EOF
+
+echo "✅ Throttling applied manually"
+
+# Rebuild and restart
+echo "🔄 Rebuilding service..."
+docker-compose build user-management-service
+docker-compose up -d user-management-service

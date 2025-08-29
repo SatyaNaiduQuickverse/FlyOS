@@ -728,7 +728,7 @@ class ProductionMockDrone:
 
 def main():
     parser = argparse.ArgumentParser(description='Enhanced Production Mock Drone Simulator with Latency')
-    parser.add_argument('--server', default='http://localhost:4005', help='Production server URL')
+    parser.add_argument('--server', default='http://65.1.63.189:4005', help='Production server URL')
     parser.add_argument('--drone-id', default='prod-drone-001', help='Drone ID')
     parser.add_argument('--model', default='FlyOS_MQ7_Production', help='Drone model')
     parser.add_argument('--lat', type=float, default=18.5204, help='Base latitude')

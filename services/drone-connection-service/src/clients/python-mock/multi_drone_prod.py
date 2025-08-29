@@ -441,8 +441,8 @@ class MultiDroneProductionLatencySimulator:
 
 def main():
     parser = argparse.ArgumentParser(description='Production Multi-Drone Latency Simulator')
-    parser.add_argument('--server', default='http://localhost:4005', 
-                       help='Production server URL (default: http://localhost:4005)')
+    parser.add_argument('--server', default='http://65.1.63.189:4005', 
+                       help='Production server URL (default: http://65.1.63.189:4005)')
     parser.add_argument('--drones', type=int, default=5, 
                        help='Number of drones to simulate (default: 5)')
     parser.add_argument('--duration', type=int, default=5,

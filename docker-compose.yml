@@ -1,11 +1,20 @@
 version: '3.8'
 
 services:
-  # Frontend (your Next.js app)
+  # Frontend (your Next.js app) - FIXED WITH BUILD ARGS
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: https://ftktazhukuquenyshvka.supabase.co
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
+        SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_WS_URL: ws://65.1.63.189:4002
+        NEXT_PUBLIC_DOMAIN: http://65.1.63.189:3001
+        DRONE_DB_SERVICE_URL: http://drone-db-service:4001
+        USER_MANAGEMENT_SERVICE_URL: http://user-management-service:4003
     ports:
       - "0.0.0.0:3001:3000"  # Expose frontend to internet
     environment:
@@ -16,8 +25,8 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
       # App Configuration
       - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_WS_URL=ws://3.111.215.70:4002
-      - NEXT_PUBLIC_DOMAIN=http://3.111.215.70:3001
+      - NEXT_PUBLIC_WS_URL=ws://65.1.63.189:4002
+      - NEXT_PUBLIC_DOMAIN=http://65.1.63.189:3001
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - USER_MANAGEMENT_SERVICE_URL=http://user-management-service:4003
     depends_on:
@@ -108,8 +117,8 @@ services:
       - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
       - CORS_ORIGIN=*
       # Public URLs for drone discovery
-      - PUBLIC_SERVER_URL=http://3.111.215.70:4005
-      - PUBLIC_WS_URL=ws://3.111.215.70:4005
+      - PUBLIC_SERVER_URL=http://65.1.63.189:4005
+      - PUBLIC_WS_URL=ws://65.1.63.189:4005
       # Camera streaming configuration
       - CAMERA_FRAME_TIMEOUT=5000
       - CAMERA_STREAM_BUFFER_SIZE=10
@@ -145,7 +154,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://3.111.215.70:3001,http://frontend:3000
+      - CORS_ORIGIN=http://65.1.63.189:3001,http://frontend:3000
       - LOG_LEVEL=info
     ports:
       - "127.0.0.1:4001:4001"  # Internal only
@@ -173,7 +182,7 @@ services:
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
       - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
-      - CORS_ORIGIN=http://3.111.215.70:3001,http://frontend:3000
+      - CORS_ORIGIN=http://65.1.63.189:3001,http://frontend:3000
       - LOG_LEVEL=info
     ports:
       - "127.0.0.1:4003:4003"  # Internal only
@@ -200,7 +209,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
       - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://3.111.215.70:3001,http://frontend:3000
+      - CORS_ORIGIN=http://65.1.63.189:3001,http://frontend:3000
       - LOG_LEVEL=info
       - DISABLE_AUTH=true
       - CAMERA_BUFFER_SIZE=50

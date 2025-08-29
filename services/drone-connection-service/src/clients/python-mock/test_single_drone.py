@@ -342,7 +342,7 @@ class SingleDroneTest:
 
 def main():
     parser = argparse.ArgumentParser(description='Single Drone Connection Test')
-    parser.add_argument('--server', default='http://localhost:4005', help='Server URL')
+    parser.add_argument('--server', default='http://65.1.63.189:4005', help='Server URL')
     parser.add_argument('--drone-id', default='test-drone-001', help='Drone ID for testing')
     parser.add_argument('--test', choices=['all', 'connection', 'reconnection', 'latency'], 
                        default='all', help='Which test to run')

@@ -27,7 +27,7 @@ const DronePrecisionLand = () => {
     if (!token || !droneId) return;
 
     // Use direct realtime service URL for precision landing
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://3.111.215.70:4002';
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://65.1.63.189:4002';
       
     const socket = io(wsUrl, {
       auth: { token },

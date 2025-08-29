@@ -921,7 +921,7 @@ class ProductionWebRTCDrone:
 
 def main():
     parser = argparse.ArgumentParser(description='Production Mock Drone with REAL WebRTC UDP Data Channels')
-    parser.add_argument('--server', default='http://localhost:4005', help='Production server URL')
+    parser.add_argument('--server', default='http://65.1.63.189:4005', help='Production server URL')
     parser.add_argument('--drone-id', default='prod-webrtc-udp-001', help='Drone ID')
     parser.add_argument('--model', default='FlyOS_MQ7_Production_WebRTC_UDP', help='Drone model')
     parser.add_argument('--lat', type=float, default=18.5204, help='Base latitude')

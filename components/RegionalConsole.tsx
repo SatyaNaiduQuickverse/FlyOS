@@ -87,7 +87,7 @@ const RegionalConsole: React.FC = () => {
   // API call functions
   const fetchRegions = async () => {
     try {
-      const response = await fetch('http://localhost:4003/api/regions', {
+      const response = await fetch('http://65.1.63.189:4003/api/regions', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -106,7 +106,7 @@ const RegionalConsole: React.FC = () => {
 
   const fetchDrones = async () => {
     try {
-      const response = await fetch('http://localhost:4003/api/drones', {
+      const response = await fetch('http://65.1.63.189:4003/api/drones', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -125,7 +125,7 @@ const RegionalConsole: React.FC = () => {
 
   const updateDroneRegion = async (droneId: string, regionId: string | null) => {
     try {
-      const response = await fetch(`http://localhost:4003/api/drones/${droneId}`, {
+      const response = await fetch(`http://65.1.63.189:4003/api/drones/${droneId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
