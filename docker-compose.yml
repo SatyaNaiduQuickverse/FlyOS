@@ -1,235 +1,207 @@
+# docker-compose.yml - COMPLETE FLYOS SYSTEM
 version: '3.8'
 
 services:
-  # Frontend (your Next.js app) - FIXED WITH BUILD ARGS
+  # Frontend Next.js Application - MAIN APPLICATION
   frontend:
-    build:
+    build: 
       context: .
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_SUPABASE_URL: https://ftktazhukuquenyshvka.supabase.co
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
-        SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-        NEXT_PUBLIC_API_URL: /api
-        NEXT_PUBLIC_WS_URL: ws://65.1.63.189:4002
-        NEXT_PUBLIC_DOMAIN: http://65.1.63.189:3001
-        DRONE_DB_SERVICE_URL: http://drone-db-service:4001
-        USER_MANAGEMENT_SERVICE_URL: http://user-management-service:4003
+        NEXT_PUBLIC_SUPABASE_URL: "https://ftktazhukuquenyshvka.supabase.co"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.l8rKPsUCH0KZTcqr4GrNz4t-_EiSqzUvUTBqxKhVa6w"
+        SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk"
+        NEXT_PUBLIC_API_URL: "http://localhost:3001"
+        NEXT_PUBLIC_WS_URL: "http://localhost:4002"
+        NEXT_PUBLIC_DOMAIN: "localhost:3001"
+        USER_MANAGEMENT_SERVICE_URL: "http://user-management-service:4003"
+        DRONE_DB_SERVICE_URL: "http://drone-db-service:4001"
     ports:
-      - "0.0.0.0:3001:3000"  # Expose frontend to internet
+      - "3001:3000"
     environment:
-      - NODE_ENV=production
-      # Supabase Configuration
-      - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      # App Configuration
-      - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_WS_URL=ws://65.1.63.189:4002
-      - NEXT_PUBLIC_DOMAIN=http://65.1.63.189:3001
-      - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
-      - USER_MANAGEMENT_SERVICE_URL=http://user-management-service:4003
+      NEXT_PUBLIC_SUPABASE_URL: "https://ftktazhukuquenyshvka.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.l8rKPsUCH0KZTcqr4GrNz4t-_EiSqzUvUTBqxKhVa6w"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk"
+      USER_MANAGEMENT_SERVICE_URL: "http://user-management-service:4003"
+      DRONE_DB_SERVICE_URL: "http://drone-db-service:4001"
+      REALTIME_SERVICE_URL: "http://realtime-service:4002"
+      DRONE_CONNECTION_SERVICE_URL: "http://drone-connection-service:4005"
+      NEXT_PUBLIC_API_URL: "http://localhost:3001"
+      NEXT_PUBLIC_WS_URL: "http://localhost:4002"
+      NEXT_PUBLIC_DOMAIN: "localhost:3001"
+      NODE_ENV: production
     depends_on:
-      - drone-db-service
-      - realtime-service
-      - user-management-service
-      - drone-connection-service
-    networks:
-      - flyos-network
+      user-management-service:
+        condition: service_healthy
+      realtime-service:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
-      timeout: 10s
-      retries: 3
+      timeout: 15s
+      retries: 5
+      start_period: 180s
 
-  # TimescaleDB database - INTERNAL ONLY
-  timescaledb:
+  # PostgreSQL for user management
+  postgres-users:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: flyos_users
+      POSTGRES_USER: flyos_user
+      POSTGRES_PASSWORD: flyos_password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flyos_user -d flyos_users"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_users_data:/var/lib/postgresql/data
+
+  # TimescaleDB for drone telemetry
+  postgres-drones:
     image: timescale/timescaledb:latest-pg14
     environment:
-      POSTGRES_USER: flyos_admin
-      POSTGRES_PASSWORD: secure_password
-      POSTGRES_DB: flyos_db
-    volumes:
-      - timescaledb_data:/var/lib/postgresql/data
-      - ./services/drone-db-service/migrations/sql:/docker-entrypoint-initdb.d
+      POSTGRES_DB: flyos_drones
+      POSTGRES_USER: flyos_drone_user
+      POSTGRES_PASSWORD: flyos_drone_password
     ports:
-      - "127.0.0.1:5432:5432"  # Bind to localhost only
-    networks:
-      - flyos-network
-    restart: unless-stopped
+      - "5434:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flyos_admin -d flyos_db"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U flyos_drone_user -d flyos_drones"]
+      interval: 5s
       timeout: 5s
       retries: 5
-
-  # PostgreSQL for User Management - INTERNAL ONLY
-  postgres-users:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: flyos_user_admin
-      POSTGRES_PASSWORD: secure_user_password
-      POSTGRES_DB: flyos_users
     volumes:
-      - user_management_data:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5433:5432"  # Bind to localhost only
-    networks:
-      - flyos-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flyos_user_admin -d flyos_users"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - postgres_drones_data:/var/lib/postgresql/data
 
-  # Redis - INTERNAL ONLY
+  # Redis for real-time features
   redis:
-    image: redis:7
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "127.0.0.1:6379:6379"  # Bind to localhost only
-    networks:
-      - flyos-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  # Drone Connection Service - EXPOSED FOR DRONES
-  drone-connection-service:
-    build:
-      context: ./services/drone-connection-service
-      dockerfile: Dockerfile
-    depends_on:
-      redis:
-        condition: service_healthy
-    environment:
-      - NODE_ENV=production
-      - PORT=4005
-      - LOG_LEVEL=info
-      - REDIS_URL=redis://redis:6379
-      - DRONE_DB_SERVICE_URL=http://drone-db-service:4001
-      - CORS_ORIGIN=*
-      # Public URLs for drone discovery
-      - PUBLIC_SERVER_URL=http://65.1.63.189:4005
-      - PUBLIC_WS_URL=ws://65.1.63.189:4005
-      # Camera streaming configuration
-      - CAMERA_FRAME_TIMEOUT=5000
-      - CAMERA_STREAM_BUFFER_SIZE=10
-      # Service token for TimescaleDB authentication
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-    ports:
-      - "0.0.0.0:4005:4005"  # EXPOSE TO INTERNET FOR DRONES
-    networks:
-      - flyos-network
-    volumes:
-      - ./logs/drone-connection:/app/logs
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4005/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Database Service - INTERNAL ONLY
-  drone-db-service:
-    build:
-      context: ./services/drone-db-service
-      dockerfile: Dockerfile
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - NODE_ENV=production
-      - PORT=4001
-      - DATABASE_URL=postgresql://flyos_admin:secure_password@timescaledb:5432/flyos_db
-      - REDIS_URL=redis://redis:6379
-      - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://65.1.63.189:3001,http://frontend:3000
-      - LOG_LEVEL=info
-    ports:
-      - "127.0.0.1:4001:4001"  # Internal only
-    networks:
-      - flyos-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # User Management Service - INTERNAL ONLY
+  # User Management Service
   user-management-service:
-    build:
-      context: ./services/user-management-service
-      dockerfile: Dockerfile
+    build: ./services/user-management-service
+    ports:
+      - "4003:4003"
+    environment:
+      DATABASE_URL: "postgresql://flyos_user:flyos_password@postgres-users:5432/flyos_users"
+      NEXT_PUBLIC_SUPABASE_URL: "https://ftktazhukuquenyshvka.supabase.co"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk"
+      PORT: 4003
+      NODE_ENV: production
+      LOG_LEVEL: info
+      CORS_ORIGIN: "http://localhost:3001"
     depends_on:
       postgres-users:
         condition: service_healthy
-    environment:
-      - NODE_ENV=production
-      - PORT=4003
-      - DATABASE_URL=postgresql://flyos_user_admin:secure_user_password@postgres-users:5432/flyos_users
-      - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMzEwNDgsImV4cCI6MjA2MzYwNzA0OH0.FC8QC-opj48oyfJwInq--ZKW41TuCMSzKwTXZ2AnPKA
-      - CORS_ORIGIN=http://65.1.63.189:3001,http://frontend:3000
-      - LOG_LEVEL=info
-    ports:
-      - "127.0.0.1:4003:4003"  # Internal only
-    networks:
-      - flyos-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4003/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 120s
 
-  # Realtime Service - EXPOSED FOR FRONTEND WEBSOCKETS
+  # Drone Database Service
+  drone-db-service:
+    build: ./services/drone-db-service
+    ports:
+      - "4001:4001"
+    environment:
+      DATABASE_URL: "postgresql://flyos_drone_user:flyos_drone_password@postgres-drones:5432/flyos_drones"
+      REDIS_URL: "redis://redis:6379"
+      NEXT_PUBLIC_SUPABASE_URL: "https://ftktazhukuquenyshvka.supabase.co"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk"
+      USER_MANAGEMENT_SERVICE_URL: "http://user-management-service:4003"
+      PORT: 4001
+      NODE_ENV: production
+      LOG_LEVEL: info
+      CORS_ORIGIN: "http://localhost:3001"
+    depends_on:
+      postgres-drones:
+        condition: service_healthy
+      user-management-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Realtime Service
   realtime-service:
-    build:
-      context: ./services/realtime-service
-      dockerfile: Dockerfile
+    build: ./services/realtime-service
+    ports:
+      - "4002:4002"
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      NEXT_PUBLIC_SUPABASE_URL: "https://ftktazhukuquenyshvka.supabase.co"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk"
+      USER_MANAGEMENT_SERVICE_URL: "http://user-management-service:4003"
+      DRONE_DB_SERVICE_URL: "http://drone-db-service:4001"
+      PORT: 4002
+      NODE_ENV: production
+      LOG_LEVEL: info
+      CORS_ORIGIN: "http://localhost:3001"
     depends_on:
       redis:
         condition: service_healthy
-    environment:
-      - NODE_ENV=production
-      - PORT=4002
-      - REDIS_URL=redis://redis:6379
-      - NEXT_PUBLIC_SUPABASE_URL=https://ftktazhukuquenyshvka.supabase.co
-      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0a3Rhemh1a3VxdWVueXNodmthIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODAzMTA0OCwiZXhwIjoyMDYzNjA3MDQ4fQ.lF9pnk_8R52ARVSWOWCV8DhDZ9RXIdfkRA6FxZ4WCWk
-      - CORS_ORIGIN=http://65.1.63.189:3001,http://frontend:3000
-      - LOG_LEVEL=info
-      - DISABLE_AUTH=true
-      - CAMERA_BUFFER_SIZE=50
-      - CAMERA_FRAME_TIMEOUT=3000
-    ports:
-      - "0.0.0.0:4002:4002"  # EXPOSE FOR FRONTEND WEBSOCKETS
-    networks:
-      - flyos-network
+      user-management-service:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
 
-networks:
-  flyos-network:
-    driver: bridge
+  # Drone Connection Service
+  drone-connection-service:
+    build: ./services/drone-connection-service
+    ports:
+      - "4005:4005"
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      DRONE_DB_SERVICE_URL: "http://drone-db-service:4001"
+      USER_MANAGEMENT_SERVICE_URL: "http://user-management-service:4003"
+      PORT: 4005
+      NODE_ENV: production
+      LOG_LEVEL: info
+      CORS_ORIGIN: "http://localhost:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+      drone-db-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
-  timescaledb_data:
+  postgres_users_data:
+  postgres_drones_data:
   redis_data:
-  user_management_data:
+
+networks:
+  default:
+    name: flyos-network
